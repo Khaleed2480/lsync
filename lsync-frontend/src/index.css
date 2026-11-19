@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 :root {
-  --font-sans: "Poppins", sans-serif;
+  --font-sans: "Montserrat", sans-serif;
 }
 
 html,
 body {
-  font-family: "Poppins", sans-serif;
+  font-family: "Montserrat", sans-serif;
 }

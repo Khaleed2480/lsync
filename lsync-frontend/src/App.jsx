@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AppProvider } from './context/AppContext'; // 👈 IMPORT CONTEXT
 import Auth from './pages/Auth';
 import ForgotPassword from './pages/ForgotPassword';
 import Dashboard from './pages/Dashboard';
@@ -7,38 +8,39 @@ import Skills from './pages/Skills';
 import Analytics from './pages/Analytics';
 import Sources from './pages/Sources';
 import Profile from './pages/Profile';
-import Settings from './pages/Settings'; 
-import EditProfile from './pages/EditProfile';
+import Settings from './pages/Settings';
+import DashboardLayout from './components/DashboardLayout';
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="/login" element={<Auth />} />
-        <Route path="/register" element={<Auth />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
+    <AppProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/login" element={<Auth />} />
+          <Route path="/register" element={<Auth />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
 
-        {/* Inner Pages */}
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/activity" element={<Activity />} />
-        <Route path="/skills" element={<Skills />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/sources" element={<Sources />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/settings" element={<Settings />} /> 
-        <Route path="/profile/edit" element={<Settings />} />
+          <Route path="/dashboard" element={<DashboardLayout><Dashboard /></DashboardLayout>} />
+          <Route path="/activity" element={<DashboardLayout><Activity /></DashboardLayout>} />
+          <Route path="/skills" element={<DashboardLayout><Skills /></DashboardLayout>} />
+          <Route path="/analytics" element={<DashboardLayout><Analytics /></DashboardLayout>} />
+          <Route path="/sources" element={<DashboardLayout><Sources /></DashboardLayout>} />
+          <Route path="/profile" element={<DashboardLayout><Profile /></DashboardLayout>} />
+          <Route path="/settings" element={<DashboardLayout><Settings /></DashboardLayout>} />
+          <Route path="/profile/edit" element={<DashboardLayout><Settings /></DashboardLayout>} />
 
-        <Route
-          path="*"
-          element={
-            <div className="min-h-screen flex flex-col items-center justify-center bg-[#140C24] text-white">
-              <h1 className="text-4xl font-extrabold text-[#F4A836] mb-2">404</h1>
-              <p className="text-sm text-gray-400">Page Not Found</p>
-            </div>
-          }
-        />
-      </Routes>
-    </BrowserRouter>
+          <Route
+            path="*"
+            element={
+              <div className="min-h-screen flex flex-col items-center justify-center bg-[#140C24] text-white">
+                <h1 className="text-4xl font-extrabold text-[#F4A836] mb-2">404</h1>
+                <p className="text-sm text-gray-400">Page Not Found</p>
+              </div>
+            }
+          />
+        </Routes>
+      </BrowserRouter>
+    </AppProvider>
   );
 }
