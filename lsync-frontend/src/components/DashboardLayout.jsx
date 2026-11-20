@@ -18,7 +18,6 @@ export default function DashboardLayout({ children }) {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Load real user from localStorage & refresh whenever route changes
   const [user, setUser] = useState({
     fullName: 'Daniel Okunlola',
     email: 'daniel@example.com',
@@ -32,7 +31,6 @@ export default function DashboardLayout({ children }) {
         setUser(JSON.parse(stored));
       }
     } catch (e) {}
-    // Close mobile drawer automatically whenever page changes
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
@@ -58,6 +56,8 @@ export default function DashboardLayout({ children }) {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('is_authenticated');
+    localStorage.removeItem('keep_signed_in');
     setMobileMenuOpen(false);
     navigate('/login');
   };
@@ -65,7 +65,7 @@ export default function DashboardLayout({ children }) {
   return (
     <div className="min-h-screen w-full bg-[#F0F2F6] flex flex-col lg:flex-row font-sans selection:bg-[#7038C4] selection:text-white overflow-x-hidden">
       
-      {/* ================= 1. MOBILE TOP NAVBAR (ONLY VISIBLE ON PHONES/TABLETS) ================= */}
+      {/* MOBILE TOP NAVBAR */}
       <header className="lg:hidden sticky top-0 z-30 w-full bg-[#633BB3] text-white px-4 py-3 flex items-center justify-between shadow-md">
         <Link to="/dashboard" className="flex items-center">
           <img
@@ -85,7 +85,7 @@ export default function DashboardLayout({ children }) {
         </button>
       </header>
 
-      {/* ================= 2. DARK BACKDROP OVERLAY ON MOBILE WHEN MENU IS OPEN ================= */}
+      {/* MOBILE BACKDROP */}
       {mobileMenuOpen && (
         <div
           onClick={() => setMobileMenuOpen(false)}
@@ -93,14 +93,13 @@ export default function DashboardLayout({ children }) {
         />
       )}
 
-      {/* ================= 3. SIDEBAR (DRAWER ON MOBILE, STATIC ON DESKTOP) ================= */}
+      {/* SIDEBAR */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#633BB3] text-white flex flex-col justify-between p-6 shrink-0 shadow-2xl overflow-y-auto transition-transform duration-300 ease-in-out lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div>
-          {/* Top Logo + Mobile Close (X) Button */}
           <div className="flex items-center justify-between mb-6">
             <Link to="/dashboard" onClick={() => setMobileMenuOpen(false)}>
               <img
@@ -144,7 +143,6 @@ export default function DashboardLayout({ children }) {
           </nav>
         </div>
 
-        {/* Bottom User Profile */}
         <div className="pt-6 mt-6 border-t border-white/15 space-y-3">
           <div
             onClick={() => {
@@ -184,7 +182,7 @@ export default function DashboardLayout({ children }) {
         </div>
       </aside>
 
-      {/* ================= 4. MAIN PAGE CONTENT AREA ================= */}
+      {/* MAIN PAGE CONTENT */}
       <main className="flex-1 min-w-0 w-full">
         {children}
       </main>

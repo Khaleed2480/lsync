@@ -26,6 +26,18 @@ export default function Auth() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  // ================= AUTO-LOGIN IF "KEEP ME SIGNED IN" IS ACTIVE =================
+  useEffect(() => {
+    const hasSavedSession =
+      localStorage.getItem('keep_signed_in') === 'true' &&
+      localStorage.getItem('is_authenticated') === 'true' &&
+      Boolean(localStorage.getItem('user'));
+
+    if (hasSavedSession) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
+
   useEffect(() => {
     setErrorMessage('');
     setSuccessMessage('');
@@ -74,6 +86,11 @@ export default function Auth() {
           throw new Error(data.message || data.error || 'Registration failed. Try again.');
         }
 
+        const token = data.token || data.accessToken || data.data?.token;
+        if (token) {
+          localStorage.setItem('token', token);
+        }
+
         localStorage.setItem(
           'user',
           JSON.stringify({
@@ -83,15 +100,21 @@ export default function Auth() {
             email: email.trim(),
           })
         );
+        localStorage.setItem('is_authenticated', 'true');
+        localStorage.setItem('keep_signed_in', 'true');
 
         setSuccessMessage('ACCOUNT CREATED SUCCESSFULLY! REDIRECTING...');
 
         setTimeout(() => {
           navigate('/dashboard');
-        }, 1000);
+        }, 900);
 
       } catch (err) {
-        setErrorMessage(err.message || 'Server is taking longer to respond. Please try again.');
+        if (err.message === 'Load failed' || err.message === 'Failed to fetch') {
+          setErrorMessage('SERVER IS WAKING UP OR BLOCKED BY CORS. PLEASE WAIT 15 SECONDS AND TRY AGAIN.');
+        } else {
+          setErrorMessage(err.message || 'Server error. Please try again.');
+        }
       } finally {
         setIsLoading(false);
       }
@@ -135,6 +158,8 @@ export default function Auth() {
           email: identifier,
         };
         localStorage.setItem('user', JSON.stringify(userObj));
+        localStorage.setItem('is_authenticated', 'true');
+        localStorage.setItem('keep_signed_in', keepSignedIn ? 'true' : 'false');
 
         setSuccessMessage('LOGIN SUCCESSFUL! LOADING DASHBOARD...');
 
@@ -143,7 +168,11 @@ export default function Auth() {
         }, 800);
 
       } catch (err) {
-        setErrorMessage(err.message || 'Unable to connect to server. Please try again.');
+        if (err.message === 'Load failed' || err.message === 'Failed to fetch') {
+          setErrorMessage('SERVER IS WAKING UP OR BLOCKED BY CORS. PLEASE WAIT 15 SECONDS AND TRY AGAIN.');
+        } else {
+          setErrorMessage(err.message || 'Unable to connect to server. Please try again.');
+        }
       } finally {
         setIsLoading(false);
       }
@@ -204,7 +233,6 @@ export default function Auth() {
             <div className="absolute top-1/2 left-1/2 w-[520px] h-[520px] rounded-full bg-[#FCE3CE]/60 pointer-events-none animate-peach-circle" />
             <div className="absolute top-1/2 left-1/2 w-[400px] h-[400px] rounded-full bg-[#F8BA82]/85 pointer-events-none shadow-[0_0_60px_rgba(248,186,130,0.4)] animate-peach-circle" style={{ animationDelay: '1s' }} />
 
-            {/* Top Logo with h-20 */}
             <div className="relative z-10">
               <Link to="/login">
                 <img 
@@ -411,7 +439,6 @@ export default function Auth() {
         <div className="w-full flex flex-col lg:flex-row min-h-screen">
           
           <div className="w-full lg:w-1/2 flex flex-col justify-between p-6 sm:p-10 lg:p-14">
-            {/* Top Logo with h-20 */}
             <div>
               <Link to="/login">
                 <img 
