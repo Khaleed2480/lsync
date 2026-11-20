@@ -8,25 +8,24 @@ import {
   Trash2,
   X,
   CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
+import { apiRequest } from '../utils/api';
 
 export default function Profile() {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
-  // Top sub-navigation tab state
   const [activeTab, setActiveTab] = useState('Profile');
 
-  // Form States (Initialized from localStorage)
+  // Form States
   const [photo, setPhoto] = useState(null);
-  const [fullName, setFullName] = useState('Daniel Okunlola');
-  const [username, setUsername] = useState('daniel-okunlola');
-  const [headline, setHeadline] = useState(
-    'Product designer building skills in data analysis and development.'
-  );
+  const [fullName, setFullName] = useState('');
+  const [username, setUsername] = useState('');
+  const [headline, setHeadline] = useState('');
   const [about, setAbout] = useState('');
   const [dob, setDob] = useState('');
-  const [email, setEmail] = useState('daniel@example.com');
+  const [email, setEmail] = useState('');
 
   // Learning Interests
   const [interests, setInterests] = useState([
@@ -37,9 +36,10 @@ export default function Profile() {
   const [isAddingInterest, setIsAddingInterest] = useState(false);
   const [newInterest, setNewInterest] = useState('');
 
-  // Save Feedback
+  // Feedback States
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Portfolio Visibility States
   const [isPortfolioPublic, setIsPortfolioPublic] = useState(true);
@@ -50,43 +50,70 @@ export default function Profile() {
     Udemy: true,
     edX: true,
   });
+  const [privacyMsg, setPrivacyMsg] = useState('');
 
   // Delete Account Modal State
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  // Load real user details from localStorage
+  // Helper to populate fields cleanly
+  const applyUserData = (u) => {
+    if (!u) return;
+    const nameVal = u.name || u.fullName || '';
+    if (nameVal) setFullName(nameVal);
+    if (u.username) {
+      setUsername(u.username);
+    } else if (nameVal && !username) {
+      setUsername(nameVal.toLowerCase().replace(/\s+/g, '-'));
+    }
+    if (u.email) setEmail(u.email);
+    if (u.headline) setHeadline(u.headline);
+    if (u.about || u.bio) setAbout(u.about || u.bio);
+    if (u.dob || u.dateOfBirth) {
+      setDob(String(u.dob || u.dateOfBirth).split('T')[0]);
+    }
+    if (u.photo || u.avatar) setPhoto(u.photo || u.avatar);
+    if (Array.isArray(u.interests) && u.interests.length > 0) {
+      setInterests(u.interests);
+    }
+    if (typeof u.isPublic === 'boolean') setIsPortfolioPublic(u.isPublic);
+    if (u.privacy && typeof u.privacy.isPublic === 'boolean') {
+      setIsPortfolioPublic(u.privacy.isPublic);
+    }
+    if (u.privacy && u.privacy.sources) {
+      setSourceVisibility((prev) => ({ ...prev, ...u.privacy.sources }));
+    }
+  };
+
+  // Load from localStorage first, then fetch latest from GET /api/users/me
   useEffect(() => {
     try {
       const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-      if (storedUser.fullName || storedUser.name) {
-        setFullName(storedUser.fullName || storedUser.name);
+      applyUserData(storedUser);
+    } catch (e) {}
+
+    const fetchLatestProfile = async () => {
+      if (!localStorage.getItem('token')) return;
+      try {
+        const data = await apiRequest('/users/me', { method: 'GET' });
+        const userObj = data.user || data.data || data;
+        applyUserData(userObj);
+        localStorage.setItem('user', JSON.stringify(userObj));
+      } catch (err) {
+        console.log('Could not sync /users/me:', err.message);
       }
-      if (storedUser.username) {
-        setUsername(storedUser.username);
-      } else if (storedUser.fullName || storedUser.name) {
-        const slug = (storedUser.fullName || storedUser.name)
-          .toLowerCase()
-          .replace(/\s+/g, '-');
-        setUsername(slug);
-      }
-      if (storedUser.email) setEmail(storedUser.email);
-      if (storedUser.headline) setHeadline(storedUser.headline);
-      if (storedUser.about) setAbout(storedUser.about);
-      if (storedUser.dob) setDob(storedUser.dob);
-      if (storedUser.photo) setPhoto(storedUser.photo);
-      if (storedUser.interests) setInterests(storedUser.interests);
-    } catch (err) {
-      console.error('Error loading user:', err);
-    }
+    };
+
+    fetchLatestProfile();
   }, []);
 
   const initials =
-    fullName
+    (fullName || 'L')
       .split(' ')
       .map((n) => n[0])
       .join('')
       .toUpperCase()
-      .slice(0, 2) || 'DO';
+      .slice(0, 2) || 'L';
 
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
@@ -111,48 +138,105 @@ export default function Profile() {
     setInterests(interests.filter((item) => item !== interestToRemove));
   };
 
-  const handleSaveProfile = (e) => {
+  // ================= 1. UPDATE PROFILE (PUT /api/users/profile) =================
+  const handleSaveProfile = async (e) => {
     e.preventDefault();
     setIsSaving(true);
     setSaveMessage('');
+    setErrorMessage('');
 
-    const updatedUser = {
-      fullName: fullName.trim(),
+    const payload = {
       name: fullName.trim(),
       username: username.trim().toLowerCase(),
-      headline,
-      about,
-      dob,
-      email: email.trim(),
+      headline: headline.trim(),
+      about: about.trim(),
+      dob: dob || undefined,
+      email: email.trim().toLowerCase(),
       photo,
       interests,
     };
 
-    setTimeout(() => {
+    try {
+      const data = await apiRequest('/users/profile', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+
+      const updatedUser = data.user || data.data || {
+        ...JSON.parse(localStorage.getItem('user') || '{}'),
+        ...payload,
+        fullName: payload.name,
+      };
+
       localStorage.setItem('user', JSON.stringify(updatedUser));
-      setIsSaving(false);
-      setSaveMessage('Profile details saved successfully!');
+      setSaveMessage('Profile details saved to database!');
       setTimeout(() => setSaveMessage(''), 3000);
-    }, 800);
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to save profile.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ================= 2. UPDATE PRIVACY (PUT /api/users/privacy) =================
+  const savePrivacySettings = async (nextPublic, nextSources) => {
+    setPrivacyMsg('Saving visibility...');
+    try {
+      await apiRequest('/users/privacy', {
+        method: 'PUT',
+        body: JSON.stringify({
+          isPublic: nextPublic,
+          sources: nextSources,
+        }),
+      });
+      setPrivacyMsg('Visibility updated!');
+      setTimeout(() => setPrivacyMsg(''), 2000);
+    } catch (err) {
+      setPrivacyMsg(err.message || 'Could not update visibility.');
+    }
+  };
+
+  const handleTogglePortfolioPublic = () => {
+    const nextPublic = !isPortfolioPublic;
+    setIsPortfolioPublic(nextPublic);
+    savePrivacySettings(nextPublic, sourceVisibility);
   };
 
   const toggleSource = (sourceName) => {
-    setSourceVisibility((prev) => ({
-      ...prev,
-      [sourceName]: !prev[sourceName],
-    }));
+    const nextSources = {
+      ...sourceVisibility,
+      [sourceName]: !sourceVisibility[sourceName],
+    };
+    setSourceVisibility(nextSources);
+    savePrivacySettings(isPortfolioPublic, nextSources);
   };
 
+  // ================= 3. LOG OUT =================
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('is_authenticated');
+    localStorage.removeItem('keep_signed_in');
     navigate('/login');
   };
 
-  const handleDeleteAccount = () => {
-    localStorage.clear();
-    setShowDeleteModal(false);
-    navigate('/register');
+  // ================= 4. DELETE ACCOUNT (DELETE /api/users/delete) =================
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    setErrorMessage('');
+    try {
+      await apiRequest('/users/delete', {
+        method: 'DELETE',
+      });
+      localStorage.clear();
+      setShowDeleteModal(false);
+      navigate('/register');
+    } catch (err) {
+      setErrorMessage(err.message || 'Could not delete account.');
+      setShowDeleteModal(false);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const scrollToSection = (tabName, elementId) => {
@@ -260,6 +344,13 @@ export default function Profile() {
           </div>
         </div>
 
+        {errorMessage && (
+          <div className="flex items-center gap-2 p-3 mb-5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
         {saveMessage && (
           <div className="flex items-center gap-2 p-3 mb-5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
@@ -292,7 +383,7 @@ export default function Profile() {
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-300 text-sm font-medium text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
               />
               <p className="text-[10px] text-gray-400 mt-1">
-                Your public link: <span className="font-semibold text-gray-600">lsync.app/{username || 'username'}</span>
+                Your public link: <span className="font-semibold text-gray-600">lsync.app/portfolio/{username || 'username'}</span>
               </p>
             </div>
           </div>
@@ -436,15 +527,22 @@ export default function Profile() {
           className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm flex flex-col justify-between"
         >
           <div>
-            <h2 className="text-base font-extrabold text-[#1A102F]">
-              Portfolio visibility
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-extrabold text-[#1A102F]">
+                Portfolio visibility
+              </h2>
+              {privacyMsg && (
+                <span className="text-[11px] font-bold text-[#4332C8]">
+                  {privacyMsg}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-gray-500 mt-1 mb-5">
               Your public portfolio shows only the sources you tick below.
             </p>
 
             <div
-              onClick={() => setIsPortfolioPublic(!isPortfolioPublic)}
+              onClick={handleTogglePortfolioPublic}
               className="flex items-center justify-between p-3.5 rounded-2xl bg-[#F4F5F8] border border-gray-200/70 mb-5 cursor-pointer hover:bg-[#ECEEF4] transition"
             >
               <span className="text-xs font-extrabold text-[#1A102F]">
@@ -555,6 +653,7 @@ export default function Profile() {
             <div className="flex items-center justify-end gap-3">
               <button
                 type="button"
+                disabled={isDeleting}
                 onClick={() => setShowDeleteModal(false)}
                 className="px-4 py-2 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-50 cursor-pointer"
               >
@@ -562,10 +661,12 @@ export default function Profile() {
               </button>
               <button
                 type="button"
+                disabled={isDeleting}
                 onClick={handleDeleteAccount}
-                className="px-4 py-2 rounded-xl bg-[#C92A1D] hover:bg-[#A61E14] text-white text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#C92A1D] hover:bg-[#A61E14] text-white text-xs font-bold cursor-pointer flex items-center gap-2 disabled:opacity-60"
               >
-                Yes, Delete
+                {isDeleting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isDeleting ? 'Deleting...' : 'Yes, Delete'}</span>
               </button>
             </div>
           </div>

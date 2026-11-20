@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Lock,
 } from 'lucide-react';
+import { apiRequest } from '../utils/api';
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -16,12 +17,12 @@ export default function Settings() {
 
   // Dynamic user data
   const [photo, setPhoto] = useState(null);
-  const [firstName, setFirstName] = useState('Daniel');
-  const [lastName, setLastName] = useState('Okunlola');
-  const [email, setEmail] = useState('daniel@example.com');
-  const [phone, setPhone] = useState('+234 812 345 6789');
-  const [github, setGithub] = useState('https://github.com/daniel-dev');
-  const [linkedin, setLinkedin] = useState('https://linkedin.com/in/daniel');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [github, setGithub] = useState('');
+  const [linkedin, setLinkedin] = useState('');
 
   // Password fields
   const [oldPassword, setOldPassword] = useState('');
@@ -41,32 +42,50 @@ export default function Settings() {
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
+  const applyUser = (u) => {
+    if (!u) return;
+    const full = u.name || u.fullName || '';
+    if (full) {
+      const parts = full.split(' ');
+      setFirstName(parts[0] || '');
+      setLastName(parts.slice(1).join(' ') || '');
+    }
+    if (u.email) setEmail(u.email);
+    if (u.photo || u.avatar) setPhoto(u.photo || u.avatar);
+    if (u.phone) setPhone(u.phone);
+    if (u.github) setGithub(u.github);
+    if (u.linkedin) setLinkedin(u.linkedin);
+  };
+
   useEffect(() => {
     try {
       const stored = JSON.parse(localStorage.getItem('user') || '{}');
-      if (stored.fullName || stored.name) {
-        const parts = (stored.fullName || stored.name).split(' ');
-        setFirstName(parts[0] || 'Daniel');
-        setLastName(parts.slice(1).join(' ') || 'Okunlola');
+      applyUser(stored);
+    } catch (e) {}
+
+    const fetchMe = async () => {
+      if (!localStorage.getItem('token')) return;
+      try {
+        const data = await apiRequest('/users/me', { method: 'GET' });
+        const userObj = data.user || data.data || data;
+        applyUser(userObj);
+        localStorage.setItem('user', JSON.stringify(userObj));
+      } catch (err) {
+        console.log('Could not load /users/me:', err.message);
       }
-      if (stored.email) setEmail(stored.email);
-      if (stored.photo) setPhoto(stored.photo);
-      if (stored.phone) setPhone(stored.phone);
-      if (stored.github) setGithub(stored.github);
-      if (stored.linkedin) setLinkedin(stored.linkedin);
-    } catch (e) {
-      console.error(e);
-    }
+    };
+
+    fetchMe();
   }, []);
 
-  const displayName = `${firstName} ${lastName}`.trim() || 'Daniel Okunlola';
+  const displayName = `${firstName} ${lastName}`.trim() || 'Learner';
   const initials =
     displayName
       .split(' ')
       .map((n) => n[0])
       .join('')
       .toUpperCase()
-      .slice(0, 2) || 'DO';
+      .slice(0, 2) || 'L';
 
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
@@ -78,12 +97,15 @@ export default function Settings() {
     reader.readAsDataURL(file);
   };
 
-  const handleSaveAll = (e) => {
+  // ================= SAVE PROFILE + PASSWORD VIA REAL APIs =================
+  const handleSaveAll = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (newPassword || repeatPassword || oldPassword) {
+    const isChangingPassword = Boolean(oldPassword || newPassword || repeatPassword);
+
+    if (isChangingPassword) {
       if (!oldPassword) {
         setErrorMsg('Please enter your old password to set a new one.');
         return;
@@ -100,35 +122,61 @@ export default function Settings() {
 
     setIsSaving(true);
 
-    setTimeout(() => {
-      // Preserve existing user fields (like interests, username, headline) while updating settings
-      const existing = JSON.parse(localStorage.getItem('user') || '{}');
-      const updatedUser = {
-        ...existing,
-        fullName: displayName,
+    try {
+      // 1. Update General Info via PUT /api/users/profile
+      const profilePayload = {
         name: displayName,
-        email,
-        phone,
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        github: github.trim(),
+        linkedin: linkedin.trim(),
         photo,
-        github,
-        linkedin,
+      };
+
+      const profileRes = await apiRequest('/users/profile', {
+        method: 'PUT',
+        body: JSON.stringify(profilePayload),
+      });
+
+      const existing = JSON.parse(localStorage.getItem('user') || '{}');
+      const updatedUser = profileRes.user || profileRes.data || {
+        ...existing,
+        ...profilePayload,
+        fullName: displayName,
       };
       localStorage.setItem('user', JSON.stringify(updatedUser));
 
-      setIsSaving(false);
-      setSuccessMsg('All changes and security settings saved successfully!');
-      setOldPassword('');
-      setNewPassword('');
-      setRepeatPassword('');
+      // 2. If user typed passwords, call PUT /api/users/password
+      if (isChangingPassword) {
+        await apiRequest('/users/password', {
+          method: 'PUT',
+          body: JSON.stringify({
+            currentPassword: oldPassword,
+            newPassword: newPassword,
+            confirmPassword: repeatPassword,
+          }),
+        });
 
-      setTimeout(() => setSuccessMsg(''), 3000);
-    }, 900);
+        setOldPassword('');
+        setNewPassword('');
+        setRepeatPassword('');
+      }
+
+      setSuccessMsg(
+        isChangingPassword
+          ? 'Profile and password updated successfully!'
+          : 'Account settings saved successfully!'
+      );
+      setTimeout(() => setSuccessMsg(''), 3500);
+    } catch (err) {
+      setErrorMsg(err.message || 'Could not save settings. Please check your inputs.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-6xl mx-auto w-full font-sans">
-      
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A102F] tracking-tight">
           Account Settings
@@ -269,6 +317,7 @@ export default function Settings() {
                   type="url"
                   value={github}
                   onChange={(e) => setGithub(e.target.value)}
+                  placeholder="https://github.com/username"
                   className="w-full px-4 py-2 rounded-xl border border-gray-200 text-xs font-medium text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
                 />
               </div>
@@ -281,16 +330,15 @@ export default function Settings() {
                   type="url"
                   value={linkedin}
                   onChange={(e) => setLinkedin(e.target.value)}
+                  placeholder="https://linkedin.com/in/username"
                   className="w-full px-4 py-2 rounded-xl border border-gray-200 text-xs font-medium text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
                 />
               </div>
             </div>
-
           </div>
 
           {/* RIGHT COLUMN: CHANGE PASSWORD & 2FA */}
           <div className="space-y-6">
-            
             <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-4">
               <div className="flex items-center gap-2">
                 <Lock className="w-4 h-4 text-[#633BB3]" />
@@ -455,7 +503,6 @@ export default function Settings() {
                 </label>
               </div>
             </div>
-
           </div>
 
         </div>
