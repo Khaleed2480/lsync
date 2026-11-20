@@ -1,21 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
-  LogOut,
   RefreshCw,
   Check,
   Plus,
-  Trash2,
   X,
   CheckCircle2,
   AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { apiRequest } from '../utils/api';
 
 export default function Profile() {
-  const navigate = useNavigate();
   const fileInputRef = useRef(null);
-
   const [activeTab, setActiveTab] = useState('Profile');
 
   // Form States
@@ -26,6 +23,8 @@ export default function Profile() {
   const [about, setAbout] = useState('');
   const [dob, setDob] = useState('');
   const [email, setEmail] = useState('');
+  const [github, setGithub] = useState('');
+  const [linkedin, setLinkedin] = useState('');
 
   // Learning Interests
   const [interests, setInterests] = useState([
@@ -52,11 +51,6 @@ export default function Profile() {
   });
   const [privacyMsg, setPrivacyMsg] = useState('');
 
-  // Delete Account Modal State
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  // Helper to populate fields cleanly
   const applyUserData = (u) => {
     if (!u) return;
     const nameVal = u.name || u.fullName || '';
@@ -72,6 +66,8 @@ export default function Profile() {
     if (u.dob || u.dateOfBirth) {
       setDob(String(u.dob || u.dateOfBirth).split('T')[0]);
     }
+    if (u.github) setGithub(u.github);
+    if (u.linkedin) setLinkedin(u.linkedin);
     if (u.photo || u.avatar) setPhoto(u.photo || u.avatar);
     if (Array.isArray(u.interests) && u.interests.length > 0) {
       setInterests(u.interests);
@@ -85,7 +81,6 @@ export default function Profile() {
     }
   };
 
-  // Load from localStorage first, then fetch latest from GET /api/users/me
   useEffect(() => {
     try {
       const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
@@ -99,9 +94,7 @@ export default function Profile() {
         const userObj = data.user || data.data || data;
         applyUserData(userObj);
         localStorage.setItem('user', JSON.stringify(userObj));
-      } catch (err) {
-        console.log('Could not sync /users/me:', err.message);
-      }
+      } catch (err) {}
     };
 
     fetchLatestProfile();
@@ -119,9 +112,7 @@ export default function Profile() {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onloadend = () => {
-      setPhoto(reader.result);
-    };
+    reader.onloadend = () => setPhoto(reader.result);
     reader.readAsDataURL(file);
   };
 
@@ -138,7 +129,6 @@ export default function Profile() {
     setInterests(interests.filter((item) => item !== interestToRemove));
   };
 
-  // ================= 1. UPDATE PROFILE (PUT /api/users/profile) =================
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     setIsSaving(true);
@@ -152,6 +142,8 @@ export default function Profile() {
       about: about.trim(),
       dob: dob || undefined,
       email: email.trim().toLowerCase(),
+      github: github.trim(),
+      linkedin: linkedin.trim(),
       photo,
       interests,
     };
@@ -169,7 +161,7 @@ export default function Profile() {
       };
 
       localStorage.setItem('user', JSON.stringify(updatedUser));
-      setSaveMessage('Profile details saved to database!');
+      setSaveMessage('Profile details saved successfully!');
       setTimeout(() => setSaveMessage(''), 3000);
     } catch (err) {
       setErrorMessage(err.message || 'Failed to save profile.');
@@ -178,7 +170,6 @@ export default function Profile() {
     }
   };
 
-  // ================= 2. UPDATE PRIVACY (PUT /api/users/privacy) =================
   const savePrivacySettings = async (nextPublic, nextSources) => {
     setPrivacyMsg('Saving visibility...');
     try {
@@ -189,7 +180,7 @@ export default function Profile() {
           sources: nextSources,
         }),
       });
-      setPrivacyMsg('Visibility updated!');
+      setPrivacyMsg('Visibility saved!');
       setTimeout(() => setPrivacyMsg(''), 2000);
     } catch (err) {
       setPrivacyMsg(err.message || 'Could not update visibility.');
@@ -211,40 +202,10 @@ export default function Profile() {
     savePrivacySettings(isPortfolioPublic, nextSources);
   };
 
-  // ================= 3. LOG OUT =================
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('is_authenticated');
-    localStorage.removeItem('keep_signed_in');
-    navigate('/login');
-  };
-
-  // ================= 4. DELETE ACCOUNT (DELETE /api/users/delete) =================
-  const handleDeleteAccount = async () => {
-    setIsDeleting(true);
-    setErrorMessage('');
-    try {
-      await apiRequest('/users/delete', {
-        method: 'DELETE',
-      });
-      localStorage.clear();
-      setShowDeleteModal(false);
-      navigate('/register');
-    } catch (err) {
-      setErrorMessage(err.message || 'Could not delete account.');
-      setShowDeleteModal(false);
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
   const scrollToSection = (tabName, elementId) => {
     setActiveTab(tabName);
     const el = document.getElementById(elementId);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const sourceList = [
@@ -259,21 +220,30 @@ export default function Profile() {
     <div className="p-6 sm:p-8 lg:p-10 max-w-5xl mx-auto w-full font-sans">
       
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A102F] tracking-tight">
-          Profile and settings
-        </h1>
-        <p className="text-xs sm:text-sm text-gray-500 mt-1">
-          Edit your details, choose what is public, and manage your account.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A102F] tracking-tight">
+            My Profile &amp; Portfolio
+          </h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-1">
+            Edit your public identity, learning interests, and choose what employers can see.
+          </p>
+        </div>
+
+        <Link
+          to={`/portfolio/${username || 'learner'}`}
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#633BB3] hover:bg-[#522F9E] text-white text-xs font-bold shadow-md transition self-start sm:self-auto"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          <span>View Public Portfolio</span>
+        </Link>
       </div>
 
-      {/* Sub-Tabs Row */}
+      {/* Sub-Tabs Row (Strictly Profile & Visibility) */}
       <div className="flex items-center gap-2 mb-6 flex-wrap">
         {[
           { label: 'Profile', id: 'section-profile' },
           { label: 'Portfolio visibility', id: 'section-visibility' },
-          { label: 'Account', id: 'section-account' },
         ].map((tab) => (
           <button
             key={tab.label}
@@ -417,6 +387,34 @@ export default function Profile() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
               <label className="block text-xs font-bold text-[#1A102F] mb-1.5">
+                GitHub URL
+              </label>
+              <input
+                type="url"
+                value={github}
+                onChange={(e) => setGithub(e.target.value)}
+                placeholder="https://github.com/username"
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-300 text-sm font-medium text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-[#1A102F] mb-1.5">
+                LinkedIn URL
+              </label>
+              <input
+                type="url"
+                value={linkedin}
+                onChange={(e) => setLinkedin(e.target.value)}
+                placeholder="https://linkedin.com/in/username"
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-300 text-sm font-medium text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div>
+              <label className="block text-xs font-bold text-[#1A102F] mb-1.5">
                 Date of birth
               </label>
               <input
@@ -426,7 +424,7 @@ export default function Profile() {
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-300 text-sm font-medium text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
               />
               <p className="text-[10px] text-gray-400 mt-1">
-                Used to celebrate your birthday. Never shown on your public portfolio.
+                Never shown on your public portfolio.
               </p>
             </div>
 
@@ -451,7 +449,7 @@ export default function Profile() {
               {interests.map((interest) => (
                 <span
                   key={interest}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#EAE4FA] text-[#4332C8] text-xs font-bold group"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#EAE4FA] text-[#4332C8] text-xs font-bold"
                 >
                   <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                   <span>{interest}</span>
@@ -506,172 +504,82 @@ export default function Profile() {
               className="px-6 py-2.5 rounded-xl bg-[#4332C8] hover:bg-[#3526A8] text-white text-xs font-bold shadow-md shadow-[#4332C8]/25 active:scale-95 transition cursor-pointer disabled:opacity-70 flex items-center gap-2"
             >
               {isSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-              <span>{isSaving ? 'Saving...' : 'Save'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard')}
-              className="px-6 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-xs font-bold text-[#1A102F] transition cursor-pointer"
-            >
-              Cancel
+              <span>{isSaving ? 'Saving...' : 'Save Profile'}</span>
             </button>
           </div>
         </form>
       </section>
 
-      {/* BOTTOM 2-COLUMN ROW */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <section
-          id="section-visibility"
-          className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm flex flex-col justify-between"
+      {/* CARD 2: PORTFOLIO VISIBILITY */}
+      <section
+        id="section-visibility"
+        className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm"
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-extrabold text-[#1A102F]">
+            Portfolio visibility
+          </h2>
+          {privacyMsg && (
+            <span className="text-[11px] font-bold text-[#4332C8]">
+              {privacyMsg}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-1 mb-5">
+          Your public portfolio shows only the sources you tick below.
+        </p>
+
+        <div
+          onClick={handleTogglePortfolioPublic}
+          className="flex items-center justify-between p-3.5 rounded-2xl bg-[#F4F5F8] border border-gray-200/70 mb-5 cursor-pointer hover:bg-[#ECEEF4] transition"
         >
-          <div>
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-extrabold text-[#1A102F]">
-                Portfolio visibility
-              </h2>
-              {privacyMsg && (
-                <span className="text-[11px] font-bold text-[#4332C8]">
-                  {privacyMsg}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-gray-500 mt-1 mb-5">
-              Your public portfolio shows only the sources you tick below.
-            </p>
-
-            <div
-              onClick={handleTogglePortfolioPublic}
-              className="flex items-center justify-between p-3.5 rounded-2xl bg-[#F4F5F8] border border-gray-200/70 mb-5 cursor-pointer hover:bg-[#ECEEF4] transition"
-            >
-              <span className="text-xs font-extrabold text-[#1A102F]">
-                Make my portfolio public
-              </span>
-              <div
-                className={`w-10 h-5 rounded-full p-0.5 transition-colors duration-200 flex items-center ${
-                  isPortfolioPublic ? 'bg-[#4332C8] justify-end' : 'bg-gray-300 justify-start'
-                }`}
-              >
-                <div className="w-4 h-4 rounded-full bg-white shadow" />
-              </div>
-            </div>
-
-            <div className="divide-y divide-gray-100">
-              {sourceList.map((source) => {
-                const isOn = sourceVisibility[source.name];
-                return (
-                  <div
-                    key={source.name}
-                    className="flex items-center justify-between py-3 first:pt-1 last:pb-0"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-7 h-7 rounded-lg ${source.bg} ${source.text} font-black text-xs flex items-center justify-center shrink-0`}
-                      >
-                        {source.badge}
-                      </div>
-                      <span className="text-xs font-bold text-[#1A102F]">
-                        {source.name}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => toggleSource(source.name)}
-                      className={`px-3 py-1 rounded-full text-[11px] font-bold transition cursor-pointer ${
-                        isOn
-                          ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                          : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                      }`}
-                    >
-                      {isOn ? 'on' : 'off'}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        <section
-          id="section-account"
-          className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm flex flex-col justify-between space-y-6"
-        >
-          <div>
-            <h2 className="text-base font-extrabold text-[#1A102F] mb-5">
-              Account
-            </h2>
-
-            <div className="flex items-center justify-between gap-4 pb-6 border-b border-gray-100">
-              <div>
-                <h4 className="text-xs font-bold text-[#1A102F]">Log out</h4>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  Sign out of LSync on this device.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-xs font-bold text-[#1A102F] transition cursor-pointer shrink-0"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Log out</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-[#FDF2F0] border border-[#F8D7D2]">
-            <h4 className="text-xs font-extrabold text-[#B91C1C] mb-1.5">
-              Delete account
-            </h4>
-            <p className="text-[11px] text-[#991B1B]/80 leading-relaxed mb-4">
-              This permanently deletes your profile, your synced learning activity and your public portfolio. This cannot be undone.
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowDeleteModal(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C92A1D] hover:bg-[#A61E14] text-white text-xs font-bold shadow-sm transition cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete account</span>
-            </button>
-          </div>
-        </section>
-      </div>
-
-      {/* DELETE CONFIRMATION MODAL */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-gray-100">
-            <h3 className="text-lg font-extrabold text-[#1A102F] mb-2">
-              Are you sure?
-            </h3>
-            <p className="text-xs text-gray-500 leading-relaxed mb-6">
-              Deleting your account will erase all your synced activities and public portfolio permanently.
-            </p>
-            <div className="flex items-center justify-end gap-3">
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={() => setShowDeleteModal(false)}
-                className="px-4 py-2 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-50 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={handleDeleteAccount}
-                className="px-4 py-2 rounded-xl bg-[#C92A1D] hover:bg-[#A61E14] text-white text-xs font-bold cursor-pointer flex items-center gap-2 disabled:opacity-60"
-              >
-                {isDeleting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isDeleting ? 'Deleting...' : 'Yes, Delete'}</span>
-              </button>
-            </div>
+          <span className="text-xs font-extrabold text-[#1A102F]">
+            Make my portfolio public
+          </span>
+          <div
+            className={`w-10 h-5 rounded-full p-0.5 transition-colors duration-200 flex items-center ${
+              isPortfolioPublic ? 'bg-[#4332C8] justify-end' : 'bg-gray-300 justify-start'
+            }`}
+          >
+            <div className="w-4 h-4 rounded-full bg-white shadow" />
           </div>
         </div>
-      )}
+
+        <div className="divide-y divide-gray-100">
+          {sourceList.map((source) => {
+            const isOn = sourceVisibility[source.name];
+            return (
+              <div
+                key={source.name}
+                className="flex items-center justify-between py-3 first:pt-1 last:pb-0"
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-7 h-7 rounded-lg ${source.bg} ${source.text} font-black text-xs flex items-center justify-center shrink-0`}
+                  >
+                    {source.badge}
+                  </div>
+                  <span className="text-xs font-bold text-[#1A102F]">
+                    {source.name}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => toggleSource(source.name)}
+                  className={`px-3 py-1 rounded-full text-[11px] font-bold transition cursor-pointer ${
+                    isOn
+                      ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                  }`}
+                >
+                  {isOn ? 'on' : 'off'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
     </div>
   );

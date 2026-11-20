@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   RefreshCw,
   Eye,
@@ -8,21 +8,13 @@ import {
   AlertCircle,
   ShieldCheck,
   Lock,
+  LogOut,
+  Trash2,
 } from 'lucide-react';
 import { apiRequest } from '../utils/api';
 
 export default function Settings() {
   const navigate = useNavigate();
-  const fileInputRef = useRef(null);
-
-  // Dynamic user data
-  const [photo, setPhoto] = useState(null);
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [github, setGithub] = useState('');
-  const [linkedin, setLinkedin] = useState('');
 
   // Password fields
   const [oldPassword, setOldPassword] = useState('');
@@ -34,7 +26,7 @@ export default function Settings() {
   const [showNew, setShowNew] = useState(false);
   const [showRepeat, setShowRepeat] = useState(false);
 
-  // Two-Factor Auth State
+  // Two-Factor Auth Preference State
   const [twoFactorMethod, setTwoFactorMethod] = useState('email');
 
   // Feedback states
@@ -42,147 +34,89 @@ export default function Settings() {
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
-  const applyUser = (u) => {
-    if (!u) return;
-    const full = u.name || u.fullName || '';
-    if (full) {
-      const parts = full.split(' ');
-      setFirstName(parts[0] || '');
-      setLastName(parts.slice(1).join(' ') || '');
-    }
-    if (u.email) setEmail(u.email);
-    if (u.photo || u.avatar) setPhoto(u.photo || u.avatar);
-    if (u.phone) setPhone(u.phone);
-    if (u.github) setGithub(u.github);
-    if (u.linkedin) setLinkedin(u.linkedin);
-  };
+  // Delete Account Modal
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem('user') || '{}');
-      applyUser(stored);
-    } catch (e) {}
-
-    const fetchMe = async () => {
-      if (!localStorage.getItem('token')) return;
-      try {
-        const data = await apiRequest('/users/me', { method: 'GET' });
-        const userObj = data.user || data.data || data;
-        applyUser(userObj);
-        localStorage.setItem('user', JSON.stringify(userObj));
-      } catch (err) {
-        console.log('Could not load /users/me:', err.message);
-      }
-    };
-
-    fetchMe();
-  }, []);
-
-  const displayName = `${firstName} ${lastName}`.trim() || 'Learner';
-  const initials =
-    displayName
-      .split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2) || 'L';
-
-  const handlePhotoUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPhoto(reader.result);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // ================= SAVE PROFILE + PASSWORD VIA REAL APIs =================
-  const handleSaveAll = async (e) => {
+  // ================= CHANGE PASSWORD (PUT /api/users/password) =================
+  const handlePasswordChange = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    const isChangingPassword = Boolean(oldPassword || newPassword || repeatPassword);
-
-    if (isChangingPassword) {
-      if (!oldPassword) {
-        setErrorMsg('Please enter your old password to set a new one.');
-        return;
-      }
-      if (newPassword.length < 6) {
-        setErrorMsg('New password must be at least 6 characters.');
-        return;
-      }
-      if (newPassword !== repeatPassword) {
-        setErrorMsg('New password and Repeat password do not match.');
-        return;
-      }
+    if (!oldPassword) {
+      setErrorMsg('Please enter your old password, or click "Forgot old password?" to reset via email.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setErrorMsg('New password must be at least 6 characters.');
+      return;
+    }
+    if (newPassword !== repeatPassword) {
+      setErrorMsg('New password and Repeat password do not match.');
+      return;
     }
 
     setIsSaving(true);
 
     try {
-      // 1. Update General Info via PUT /api/users/profile
-      const profilePayload = {
-        name: displayName,
-        email: email.trim().toLowerCase(),
-        phone: phone.trim(),
-        github: github.trim(),
-        linkedin: linkedin.trim(),
-        photo,
-      };
-
-      const profileRes = await apiRequest('/users/profile', {
+      await apiRequest('/users/password', {
         method: 'PUT',
-        body: JSON.stringify(profilePayload),
+        body: JSON.stringify({
+          currentPassword: oldPassword,
+          newPassword: newPassword,
+          confirmPassword: repeatPassword,
+        }),
       });
 
-      const existing = JSON.parse(localStorage.getItem('user') || '{}');
-      const updatedUser = profileRes.user || profileRes.data || {
-        ...existing,
-        ...profilePayload,
-        fullName: displayName,
-      };
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-
-      // 2. If user typed passwords, call PUT /api/users/password
-      if (isChangingPassword) {
-        await apiRequest('/users/password', {
-          method: 'PUT',
-          body: JSON.stringify({
-            currentPassword: oldPassword,
-            newPassword: newPassword,
-            confirmPassword: repeatPassword,
-          }),
-        });
-
-        setOldPassword('');
-        setNewPassword('');
-        setRepeatPassword('');
-      }
-
-      setSuccessMsg(
-        isChangingPassword
-          ? 'Profile and password updated successfully!'
-          : 'Account settings saved successfully!'
-      );
+      setOldPassword('');
+      setNewPassword('');
+      setRepeatPassword('');
+      setSuccessMsg('Password updated successfully!');
       setTimeout(() => setSuccessMsg(''), 3500);
     } catch (err) {
-      setErrorMsg(err.message || 'Could not save settings. Please check your inputs.');
+      setErrorMsg(err.message || 'Could not update password. Check your old password.');
     } finally {
       setIsSaving(false);
     }
   };
 
+  // ================= LOG OUT =================
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('is_authenticated');
+    localStorage.removeItem('keep_signed_in');
+    navigate('/login');
+  };
+
+  // ================= DELETE ACCOUNT (DELETE /api/users/delete) =================
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    setErrorMsg('');
+    try {
+      await apiRequest('/users/delete', { method: 'DELETE' });
+      localStorage.clear();
+      setShowDeleteModal(false);
+      navigate('/register');
+    } catch (err) {
+      setErrorMsg(err.message || 'Could not delete account.');
+      setShowDeleteModal(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
-    <div className="p-6 sm:p-8 lg:p-10 max-w-6xl mx-auto w-full font-sans">
+    <div className="p-6 sm:p-8 lg:p-10 max-w-5xl mx-auto w-full font-sans">
+      
+      {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A102F] tracking-tight">
-          Account Settings
+          Security &amp; Account Settings
         </h1>
         <p className="text-xs sm:text-sm text-gray-500 mt-1">
-          Manage your personal profile, update your password, and configure two-factor authentication.
+          Update your password, configure security preferences, or manage your account status.
         </p>
       </div>
 
@@ -200,332 +134,285 @@ export default function Settings() {
         </div>
       )}
 
-      <form onSubmit={handleSaveAll} className="space-y-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          
-          {/* LEFT CARD: GENERAL INFO */}
-          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-6">
-            <h2 className="text-base font-extrabold text-[#1A102F]">
-              General Information
-            </h2>
-
-            <div className="flex items-center gap-5">
-              {photo ? (
-                <img
-                  src={photo}
-                  alt="Profile"
-                  className="w-16 h-16 rounded-full object-cover ring-4 ring-purple-100 shrink-0"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded-full bg-[#4332C8] text-white flex items-center justify-center font-black text-xl shadow-md shrink-0">
-                  {initials}
-                </div>
-              )}
-
-              <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    ref={fileInputRef}
-                    onChange={handlePhotoUpload}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current.click()}
-                    className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-xs font-bold text-[#1A102F] transition cursor-pointer"
-                  >
-                    Change photo
-                  </button>
-                  {photo && (
-                    <button
-                      type="button"
-                      onClick={() => setPhoto(null)}
-                      className="text-xs font-bold text-[#633BB3] hover:underline cursor-pointer"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-                <p className="text-[11px] text-gray-400">
-                  A square image works best. Shown on your public portfolio.
-                </p>
-              </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        {/* CARD 1: CHANGE PASSWORD (WITH FORGOT OLD PASSWORD LINK) */}
+        <form
+          onSubmit={handlePasswordChange}
+          className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-4 flex flex-col justify-between"
+        >
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-[#633BB3]" />
+              <h2 className="text-base font-extrabold text-[#1A102F]">
+                Change password
+              </h2>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-[#1A102F] mb-1.5">
-                  First Name
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-[#1A102F]">
+                  Old password
                 </label>
-                <input
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
-                />
+                {/* LINK IF USER FORGOT THEIR OLD PASSWORD */}
+                <Link
+                  to="/forgot-password"
+                  className="text-[11px] font-bold text-[#633BB3] hover:text-[#EB577F] hover:underline"
+                >
+                  Forgot old password?
+                </Link>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-[#1A102F] mb-1.5">
-                  Last Name
-                </label>
+              <div className="relative">
                 <input
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
+                  type={showOld ? 'text' : 'password'}
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  className="w-full px-4 pr-11 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-[#1A102F] placeholder-gray-300 focus:outline-none focus:border-[#633BB3] transition"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowOld(!showOld)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 transition cursor-pointer"
+                >
+                  {showOld ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-[#1A102F] mb-1.5">
-                Email Address
+                New password
               </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
-              />
+              <div className="relative">
+                <input
+                  type={showNew ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  className="w-full px-4 pr-11 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-[#1A102F] placeholder-gray-300 focus:outline-none focus:border-[#633BB3] transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNew(!showNew)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 transition cursor-pointer"
+                >
+                  {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-[#1A102F] mb-1.5">
-                Phone Number
+                Repeat New Password
               </label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+234..."
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
-              />
-            </div>
-
-            <div className="space-y-3 pt-2">
-              <span className="block text-xs font-extrabold text-[#1A102F]">
-                Social Profiles (Portfolio Links)
-              </span>
-
-              <div>
-                <label className="block text-[11px] font-bold text-gray-500 mb-1">
-                  GitHub URL
-                </label>
+              <div className="relative">
                 <input
-                  type="url"
-                  value={github}
-                  onChange={(e) => setGithub(e.target.value)}
-                  placeholder="https://github.com/username"
-                  className="w-full px-4 py-2 rounded-xl border border-gray-200 text-xs font-medium text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
+                  type={showRepeat ? 'text' : 'password'}
+                  value={repeatPassword}
+                  onChange={(e) => setRepeatPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  className="w-full px-4 pr-11 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-[#1A102F] placeholder-gray-300 focus:outline-none focus:border-[#633BB3] transition"
                 />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-gray-500 mb-1">
-                  LinkedIn URL
-                </label>
-                <input
-                  type="url"
-                  value={linkedin}
-                  onChange={(e) => setLinkedin(e.target.value)}
-                  placeholder="https://linkedin.com/in/username"
-                  className="w-full px-4 py-2 rounded-xl border border-gray-200 text-xs font-medium text-[#1A102F] focus:outline-none focus:border-[#633BB3] transition"
-                />
+                <button
+                  type="button"
+                  onClick={() => setShowRepeat(!showRepeat)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 transition cursor-pointer"
+                >
+                  {showRepeat ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
           </div>
 
-          {/* RIGHT COLUMN: CHANGE PASSWORD & 2FA */}
-          <div className="space-y-6">
-            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-4">
-              <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-[#633BB3]" />
-                <h2 className="text-base font-extrabold text-[#1A102F]">
-                  Change password
-                </h2>
-              </div>
+          <div className="pt-4">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="w-full py-3 rounded-xl bg-[#633BB3] hover:bg-[#522F9E] text-white text-xs font-bold shadow-md shadow-[#633BB3]/25 active:scale-95 transition cursor-pointer disabled:opacity-70 flex items-center justify-center gap-2"
+            >
+              {isSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+              <span>{isSaving ? 'Updating Password...' : 'Update Password'}</span>
+            </button>
+          </div>
+        </form>
 
-              <div>
-                <label className="block text-xs font-bold text-[#1A102F] mb-1.5">
-                  Old password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showOld ? 'text' : 'password'}
-                    value={oldPassword}
-                    onChange={(e) => setOldPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full px-4 pr-11 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-[#1A102F] placeholder-gray-300 focus:outline-none focus:border-[#633BB3] transition"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowOld(!showOld)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 transition cursor-pointer"
-                  >
-                    {showOld ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-[#1A102F] mb-1.5">
-                  New password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showNew ? 'text' : 'password'}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full px-4 pr-11 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-[#1A102F] placeholder-gray-300 focus:outline-none focus:border-[#633BB3] transition"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNew(!showNew)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 transition cursor-pointer"
-                  >
-                    {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-[#1A102F] mb-1.5">
-                  Repeat New Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showRepeat ? 'text' : 'password'}
-                    value={repeatPassword}
-                    onChange={(e) => setRepeatPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full px-4 pr-11 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-[#1A102F] placeholder-gray-300 focus:outline-none focus:border-[#633BB3] transition"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowRepeat(!showRepeat)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 transition cursor-pointer"
-                  >
-                    {showRepeat ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* 2FA */}
-            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-4">
+        {/* RIGHT COLUMN: 2FA + ACCOUNT ACTIONS */}
+        <div className="space-y-6">
+          
+          {/* CARD 2: TWO-FACTOR AUTHENTICATION */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
                 <h2 className="text-base font-extrabold text-[#1A102F]">
                   Two-Factor Auth
                 </h2>
               </div>
-              <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
-                Add an extra layer of security to your LSync learning portfolio.
-              </p>
+              <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                Phase 2 Preview
+              </span>
+            </div>
 
-              <div className="space-y-3 pt-1">
-                <label
-                  onClick={() => setTwoFactorMethod('email')}
-                  className={`flex items-center justify-between p-3.5 rounded-2xl border transition cursor-pointer ${
-                    twoFactorMethod === 'email'
-                      ? 'border-[#633BB3] bg-purple-50/30'
-                      : 'border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  <div>
-                    <span className="text-xs font-bold text-[#1A102F] block">
-                      Email Authentication
-                    </span>
-                    <span className="text-[10px] text-gray-400 font-medium">
-                      Receive a 6-digit code via your registered email.
-                    </span>
-                  </div>
-                  <input
-                    type="radio"
-                    name="2fa"
-                    checked={twoFactorMethod === 'email'}
-                    onChange={() => setTwoFactorMethod('email')}
-                    className="w-4 h-4 text-[#633BB3]"
-                  />
-                </label>
+            <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
+              Select your preferred second verification factor (requires backend OTP activation in Phase 2).
+            </p>
 
-                <label
-                  onClick={() => setTwoFactorMethod('app')}
-                  className={`flex items-center justify-between p-3.5 rounded-2xl border transition cursor-pointer ${
-                    twoFactorMethod === 'app'
-                      ? 'border-[#633BB3] bg-purple-50/30'
-                      : 'border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  <div>
-                    <span className="text-xs font-bold text-[#1A102F] block">
-                      Google Authenticator
-                    </span>
-                    <span className="text-[10px] text-gray-400 font-medium">
-                      Use Google Authenticator or Authy app.
-                    </span>
-                  </div>
-                  <input
-                    type="radio"
-                    name="2fa"
-                    checked={twoFactorMethod === 'app'}
-                    onChange={() => setTwoFactorMethod('app')}
-                    className="w-4 h-4 text-[#633BB3]"
-                  />
-                </label>
+            <div className="space-y-3 pt-1">
+              <label
+                onClick={() => setTwoFactorMethod('email')}
+                className={`flex items-center justify-between p-3.5 rounded-2xl border transition cursor-pointer ${
+                  twoFactorMethod === 'email'
+                    ? 'border-[#633BB3] bg-purple-50/30'
+                    : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <div>
+                  <span className="text-xs font-bold text-[#1A102F] block">
+                    Email Authentication
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-medium">
+                    Receive a 6-digit code via your registered email.
+                  </span>
+                </div>
+                <input
+                  type="radio"
+                  name="2fa"
+                  checked={twoFactorMethod === 'email'}
+                  onChange={() => setTwoFactorMethod('email')}
+                  className="w-4 h-4 text-[#633BB3]"
+                />
+              </label>
 
-                <label
-                  onClick={() => setTwoFactorMethod('disabled')}
-                  className={`flex items-center justify-between p-3.5 rounded-2xl border transition cursor-pointer ${
-                    twoFactorMethod === 'disabled'
-                      ? 'border-[#633BB3] bg-purple-50/30'
-                      : 'border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  <div>
-                    <span className="text-xs font-bold text-gray-700 block">
-                      Disabled
-                    </span>
-                    <span className="text-[10px] text-gray-400 font-medium">
-                      Sign in using only password.
-                    </span>
-                  </div>
-                  <input
-                    type="radio"
-                    name="2fa"
-                    checked={twoFactorMethod === 'disabled'}
-                    onChange={() => setTwoFactorMethod('disabled')}
-                    className="w-4 h-4 text-[#633BB3]"
-                  />
-                </label>
+              <label
+                onClick={() => setTwoFactorMethod('app')}
+                className={`flex items-center justify-between p-3.5 rounded-2xl border transition cursor-pointer ${
+                  twoFactorMethod === 'app'
+                    ? 'border-[#633BB3] bg-purple-50/30'
+                    : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <div>
+                  <span className="text-xs font-bold text-[#1A102F] block">
+                    Google Authenticator
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-medium">
+                    Use Google Authenticator or Authy app.
+                  </span>
+                </div>
+                <input
+                  type="radio"
+                  name="2fa"
+                  checked={twoFactorMethod === 'app'}
+                  onChange={() => setTwoFactorMethod('app')}
+                  className="w-4 h-4 text-[#633BB3]"
+                />
+              </label>
+
+              <label
+                onClick={() => setTwoFactorMethod('disabled')}
+                className={`flex items-center justify-between p-3.5 rounded-2xl border transition cursor-pointer ${
+                  twoFactorMethod === 'disabled'
+                    ? 'border-[#633BB3] bg-purple-50/30'
+                    : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <div>
+                  <span className="text-xs font-bold text-gray-700 block">
+                    Disabled
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-medium">
+                    Sign in using only password.
+                  </span>
+                </div>
+                <input
+                  type="radio"
+                  name="2fa"
+                  checked={twoFactorMethod === 'disabled'}
+                  onChange={() => setTwoFactorMethod('disabled')}
+                  className="w-4 h-4 text-[#633BB3]"
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* CARD 3: ACCOUNT MANAGEMENT (MOVED HERE FROM PROFILE) */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-5">
+            <h2 className="text-base font-extrabold text-[#1A102F]">
+              Account Actions
+            </h2>
+
+            <div className="flex items-center justify-between gap-4 pb-5 border-b border-gray-100">
+              <div>
+                <h4 className="text-xs font-bold text-[#1A102F]">Log out</h4>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Sign out of LSync on this device.
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-xs font-bold text-[#1A102F] transition cursor-pointer shrink-0"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Log out</span>
+              </button>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-[#FDF2F0] border border-[#F8D7D2]">
+              <h4 className="text-xs font-extrabold text-[#B91C1C] mb-1.5">
+                Delete account
+              </h4>
+              <p className="text-[11px] text-[#991B1B]/80 leading-relaxed mb-4">
+                This permanently deletes your profile, synced learning activity, and public portfolio.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C92A1D] hover:bg-[#A61E14] text-white text-xs font-bold shadow-sm transition cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete account</span>
+              </button>
             </div>
           </div>
 
         </div>
 
-        <div className="flex items-center justify-end gap-4 pt-4 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={() => navigate('/dashboard')}
-            className="px-6 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-xs font-bold text-[#1A102F] transition cursor-pointer"
-          >
-            Cancel
-          </button>
+      </div>
 
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="px-7 py-3 rounded-xl bg-[#633BB3] hover:bg-[#522F9E] text-white text-xs font-bold shadow-md shadow-[#633BB3]/25 active:scale-95 transition cursor-pointer disabled:opacity-70 flex items-center gap-2"
-          >
-            {isSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-            <span>{isSaving ? 'Saving Changes...' : 'Save All Changes'}</span>
-          </button>
+      {/* DELETE CONFIRMATION MODAL */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-gray-100">
+            <h3 className="text-lg font-extrabold text-[#1A102F] mb-2">
+              Are you sure?
+            </h3>
+            <p className="text-xs text-gray-500 leading-relaxed mb-6">
+              Deleting your account will erase all your synced activities and public portfolio permanently.
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteAccount}
+                className="px-4 py-2 rounded-xl bg-[#C92A1D] hover:bg-[#A61E14] text-white text-xs font-bold cursor-pointer flex items-center gap-2 disabled:opacity-60"
+              >
+                {isDeleting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isDeleting ? 'Deleting...' : 'Yes, Delete'}</span>
+              </button>
+            </div>
+          </div>
         </div>
-      </form>
+      )}
 
     </div>
   );
