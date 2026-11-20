@@ -1,22 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { Eye, EyeOff, Check, RefreshCw } from 'lucide-react';
-
-const API_BASE_URL = 'https://lsync-1-0-0-1.onrender.com/api';
+import { apiRequest } from '../utils/api';
 
 export default function Auth() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Mode: Sign In vs Sign Up
   const isSignUp = location.pathname === '/register';
 
-  // Form Fields
+  // Form Fields (Matches backend: Name, Email, Password)
   const [fullName, setFullName] = useState('');
-  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [identifier, setIdentifier] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [keepSignedIn, setKeepSignedIn] = useState(true);
@@ -26,11 +22,12 @@ export default function Auth() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // ================= AUTO-LOGIN IF "KEEP ME SIGNED IN" IS ACTIVE =================
+  // Auto-login if "Keep me signed in" is active
   useEffect(() => {
     const hasSavedSession =
       localStorage.getItem('keep_signed_in') === 'true' &&
       localStorage.getItem('is_authenticated') === 'true' &&
+      Boolean(localStorage.getItem('token')) &&
       Boolean(localStorage.getItem('user'));
 
     if (hasSavedSession) {
@@ -43,14 +40,14 @@ export default function Auth() {
     setSuccessMessage('');
   }, [location.pathname]);
 
-  // ================= REAL SUBMISSION HANDLER =================
+  // ================= REAL API SUBMISSION HANDLER =================
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
 
     if (isSignUp) {
-      if (!fullName || !username || !email || !password) {
+      if (!fullName || !email || !password) {
         setErrorMessage('PLEASE FILL IN ALL FIELDS.');
         return;
       }
@@ -66,86 +63,16 @@ export default function Auth() {
       setIsLoading(true);
 
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/register`, {
+        // 1. Register with ONLY Name, Email, Password
+        const data = await apiRequest('/auth/register', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          skipAuth: true,
           body: JSON.stringify({
             name: fullName.trim(),
-            fullName: fullName.trim(),
-            username: username.trim().toLowerCase(),
             email: email.trim().toLowerCase(),
             password: password,
           }),
         });
-
-        const data = await response.json();
-
-        if (!response.ok || data.success === false) {
-          throw new Error(data.message || data.error || 'Registration failed. Try again.');
-        }
-
-        const token = data.token || data.accessToken || data.data?.token;
-        if (token) {
-          localStorage.setItem('token', token);
-        }
-
-        localStorage.setItem(
-          'user',
-          JSON.stringify({
-            fullName: fullName.trim(),
-            name: fullName.trim(),
-            username: username.trim(),
-            email: email.trim(),
-          })
-        );
-        localStorage.setItem('is_authenticated', 'true');
-        localStorage.setItem('keep_signed_in', 'true');
-
-        setSuccessMessage('ACCOUNT CREATED SUCCESSFULLY! REDIRECTING...');
-
-        setTimeout(() => {
-          navigate('/dashboard');
-        }, 900);
-
-      } catch (err) {
-        if (err.message === 'Load failed' || err.message === 'Failed to fetch') {
-          setErrorMessage('SERVER IS WAKING UP OR BLOCKED BY CORS. PLEASE WAIT 15 SECONDS AND TRY AGAIN.');
-        } else {
-          setErrorMessage(err.message || 'Server error. Please try again.');
-        }
-      } finally {
-        setIsLoading(false);
-      }
-
-    } else {
-      // ================= LOGIN FLOW =================
-      if (!identifier || !password) {
-        setErrorMessage('PLEASE ENTER YOUR USERNAME/EMAIL AND PASSWORD.');
-        return;
-      }
-
-      setIsLoading(true);
-
-      try {
-        const response = await fetch(`${API_BASE_URL}/auth/login`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            email: identifier.trim().toLowerCase(),
-            username: identifier.trim().toLowerCase(),
-            password: password,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok || data.success === false) {
-          throw new Error(data.message || data.error || 'Invalid credentials. Please try again.');
-        }
 
         const token = data.token || data.accessToken || data.data?.token;
         if (token) {
@@ -153,11 +80,63 @@ export default function Auth() {
         }
 
         const userObj = data.user || data.data?.user || {
-          fullName: identifier.split('@')[0],
-          name: identifier.split('@')[0],
-          email: identifier,
+          name: fullName.trim(),
+          fullName: fullName.trim(),
+          email: email.trim().toLowerCase(),
         };
         localStorage.setItem('user', JSON.stringify(userObj));
+        localStorage.setItem('is_authenticated', 'true');
+        localStorage.setItem('keep_signed_in', 'true');
+
+        // If backend didn't auto-return a token on register, prompt login; otherwise go straight to dashboard
+        if (token) {
+          setSuccessMessage('ACCOUNT CREATED SUCCESSFULLY! REDIRECTING...');
+          setTimeout(() => navigate('/dashboard'), 900);
+        } else {
+          setSuccessMessage('ACCOUNT CREATED! PLEASE SIGN IN BELOW.');
+          setTimeout(() => navigate('/login'), 1200);
+        }
+      } catch (err) {
+        setErrorMessage(err.message);
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      // ================= LOGIN FLOW =================
+      if (!email || !password) {
+        setErrorMessage('PLEASE ENTER YOUR EMAIL AND PASSWORD.');
+        return;
+      }
+
+      setIsLoading(true);
+
+      try {
+        const data = await apiRequest('/auth/login', {
+          method: 'POST',
+          skipAuth: true,
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            password: password,
+          }),
+        });
+
+        const token = data.token || data.accessToken || data.data?.token;
+        if (token) {
+          localStorage.setItem('token', token);
+        }
+
+        // Fetch full authenticated user from GET /api/users/me
+        let userObj = data.user || data.data?.user;
+        if (!userObj && token) {
+          try {
+            const meData = await apiRequest('/users/me', { method: 'GET' });
+            userObj = meData.user || meData.data || meData;
+          } catch (meErr) {
+            userObj = { name: email.split('@')[0], email: email.trim().toLowerCase() };
+          }
+        }
+
+        localStorage.setItem('user', JSON.stringify(userObj || { name: email.split('@')[0], email }));
         localStorage.setItem('is_authenticated', 'true');
         localStorage.setItem('keep_signed_in', keepSignedIn ? 'true' : 'false');
 
@@ -165,14 +144,9 @@ export default function Auth() {
 
         setTimeout(() => {
           navigate('/dashboard');
-        }, 800);
-
+        }, 700);
       } catch (err) {
-        if (err.message === 'Load failed' || err.message === 'Failed to fetch') {
-          setErrorMessage('SERVER IS WAKING UP OR BLOCKED BY CORS. PLEASE WAIT 15 SECONDS AND TRY AGAIN.');
-        } else {
-          setErrorMessage(err.message || 'Unable to connect to server. Please try again.');
-        }
+        setErrorMessage(err.message);
       } finally {
         setIsLoading(false);
       }
@@ -181,8 +155,6 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen w-full flex flex-col lg:flex-row bg-[#F7F6FA] font-sans overflow-x-hidden selection:bg-[#9667E0] selection:text-white">
-      
-      {/* CSS KEYFRAMES */}
       <style>{`
         @keyframes floatSlow {
           0%, 100% { transform: translateY(0px); }
@@ -227,24 +199,21 @@ export default function Auth() {
       {/* ================= SIGN UP PAGE ================= */}
       {isSignUp ? (
         <div className="w-full flex flex-col lg:flex-row min-h-screen">
-          
           <div className="w-full lg:w-1/2 min-h-screen flex flex-col justify-between p-6 sm:p-10 lg:p-14 relative overflow-hidden">
-            
             <div className="absolute top-1/2 left-1/2 w-[520px] h-[520px] rounded-full bg-[#FCE3CE]/60 pointer-events-none animate-peach-circle" />
             <div className="absolute top-1/2 left-1/2 w-[400px] h-[400px] rounded-full bg-[#F8BA82]/85 pointer-events-none shadow-[0_0_60px_rgba(248,186,130,0.4)] animate-peach-circle" style={{ animationDelay: '1s' }} />
 
             <div className="relative z-10">
               <Link to="/login">
-                <img 
-                  src="/lsync logo.jpeg" 
-                  alt="LSync Logo" 
+                <img
+                  src="/lsync logo.jpeg"
+                  alt="LSync Logo"
                   className="h-20 w-auto object-contain"
                 />
               </Link>
             </div>
 
             <div className="relative z-10 my-auto py-6 max-w-sm w-full mx-auto">
-              
               <div className="mb-6">
                 <div className="inline-block bg-white/50 backdrop-blur-sm px-6 py-2.5 rounded-2xl shadow-xs">
                   <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-wide text-[#1A102F]">
@@ -278,23 +247,6 @@ export default function Auth() {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="e.g. Daniel Okunlola"
-                    required
-                    className="w-full px-4 py-3 rounded-2xl bg-white border border-gray-200 text-sm font-bold text-[#1A102F] shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#9667E0] transition"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="signup-username" className="block text-xs font-black uppercase tracking-wider text-[#1A102F] mb-1.5">
-                    USERNAME
-                  </label>
-                  <input
-                    id="signup-username"
-                    name="username"
-                    type="text"
-                    autoComplete="username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="e.g. daniel_dev"
                     required
                     className="w-full px-4 py-3 rounded-2xl bg-white border border-gray-200 text-sm font-bold text-[#1A102F] shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#9667E0] transition"
                   />
@@ -367,11 +319,7 @@ export default function Auth() {
                   disabled={isLoading}
                   className="w-full py-3.5 mt-2 bg-[#9667E0] hover:bg-[#8553D6] text-white font-black uppercase tracking-wider text-sm rounded-2xl shadow-lg shadow-[#9667E0]/30 active:scale-[0.99] transition duration-200 cursor-pointer disabled:opacity-70 flex items-center justify-center min-h-[48px]"
                 >
-                  {isLoading ? (
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                  ) : (
-                    'SIGN UP'
-                  )}
+                  {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : 'SIGN UP'}
                 </button>
               </form>
 
@@ -385,7 +333,6 @@ export default function Auth() {
                   SIGN IN
                 </button>
               </div>
-
             </div>
 
             <div />
@@ -430,20 +377,17 @@ export default function Auth() {
                 </div>
               </div>
             </div>
-
           </div>
-
         </div>
       ) : (
         /* ================= LOGIN PAGE ================= */
         <div className="w-full flex flex-col lg:flex-row min-h-screen">
-          
           <div className="w-full lg:w-1/2 flex flex-col justify-between p-6 sm:p-10 lg:p-14">
             <div>
               <Link to="/login">
-                <img 
-                  src="/lsync logo.jpeg" 
-                  alt="LSync Logo" 
+                <img
+                  src="/lsync logo.jpeg"
+                  alt="LSync Logo"
                   className="h-20 w-auto object-contain"
                 />
               </Link>
@@ -451,7 +395,6 @@ export default function Auth() {
 
             <div className="my-auto py-8 max-w-md w-full mx-auto">
               <div className="bg-white rounded-3xl p-8 sm:p-10 shadow-[0_10px_35px_rgba(112,56,196,0.06)] border-2 border-[#F4A836]">
-                
                 <div className="text-center mb-6">
                   <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-wide text-[#1A102F]">
                     WELCOME BACK
@@ -475,16 +418,16 @@ export default function Auth() {
 
                 <form key="login-form" onSubmit={handleSubmit} autoComplete="on" className="space-y-4">
                   <div>
-                    <label htmlFor="login-identifier" className="block text-xs font-black uppercase tracking-wider text-[#1A102F] mb-1.5">
-                      USERNAME OR EMAIL
+                    <label htmlFor="login-email" className="block text-xs font-black uppercase tracking-wider text-[#1A102F] mb-1.5">
+                      EMAIL ADDRESS
                     </label>
                     <input
-                      id="login-identifier"
-                      name="username"
-                      type="text"
-                      autoComplete="username"
-                      value={identifier}
-                      onChange={(e) => setIdentifier(e.target.value)}
+                      id="login-email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       placeholder="e.g. daniel@example.com"
                       required
                       className="w-full px-4 py-3 rounded-xl bg-[#F8F9FC] border border-gray-300 text-sm font-bold text-[#1A102F] placeholder-gray-400 focus:outline-none focus:border-[#7038C4] focus:bg-white transition"
@@ -542,11 +485,7 @@ export default function Auth() {
                     disabled={isLoading}
                     className="w-full py-3.5 mt-2 bg-[#9667E0] hover:bg-[#8553D6] text-white font-black uppercase tracking-wider text-sm rounded-xl shadow-lg shadow-[#9667E0]/25 active:scale-[0.99] transition duration-200 cursor-pointer disabled:opacity-70 flex items-center justify-center min-h-[48px]"
                   >
-                    {isLoading ? (
-                      <RefreshCw className="w-5 h-5 animate-spin" />
-                    ) : (
-                      'SIGN IN'
-                    )}
+                    {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : 'SIGN IN'}
                   </button>
                 </form>
 
@@ -575,7 +514,7 @@ export default function Auth() {
                 <div className="grid grid-cols-3 gap-3">
                   <button
                     type="button"
-                    onClick={() => alert('Social OAuth is configured by backend!')}
+                    onClick={() => setErrorMessage('SIGN IN WITH EMAIL FIRST. CONNECT GOOGLE/YOUTUBE INSIDE SOURCES.')}
                     className="h-11 bg-white hover:bg-[#FAF7F2] border border-[#F4A836]/50 rounded-xl flex items-center justify-center shadow-[0_2px_12px_rgba(244,168,54,0.18)] active:scale-95 transition cursor-pointer"
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -588,7 +527,7 @@ export default function Auth() {
 
                   <button
                     type="button"
-                    onClick={() => alert('Social OAuth is configured by backend!')}
+                    onClick={() => setErrorMessage('SIGN IN WITH EMAIL FIRST. CONNECT GITHUB INSIDE SOURCES.')}
                     className="h-11 bg-white hover:bg-[#FAF7F2] border border-[#F4A836]/50 rounded-xl flex items-center justify-center shadow-[0_2px_12px_rgba(244,168,54,0.18)] active:scale-95 transition cursor-pointer"
                   >
                     <svg className="w-5 h-5 fill-[#1A102F]" viewBox="0 0 24 24">
@@ -598,7 +537,7 @@ export default function Auth() {
 
                   <button
                     type="button"
-                    onClick={() => alert('Social OAuth is configured by backend!')}
+                    onClick={() => setErrorMessage('SIGN IN WITH EMAIL FIRST. OAUTH LOGIN COMING SOON.')}
                     className="h-11 bg-white hover:bg-[#FAF7F2] border border-[#F4A836]/50 rounded-xl flex items-center justify-center shadow-[0_2px_12px_rgba(244,168,54,0.18)] active:scale-95 transition cursor-pointer"
                   >
                     <svg className="w-4 h-4" viewBox="0 0 23 23">
@@ -609,7 +548,6 @@ export default function Auth() {
                     </svg>
                   </button>
                 </div>
-
               </div>
             </div>
 
@@ -668,12 +606,9 @@ export default function Auth() {
                 </p>
               </div>
             </div>
-
           </div>
-
         </div>
       )}
-
     </div>
   );
 }

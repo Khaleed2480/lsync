@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import Auth from './pages/Auth';
 import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Activity from './pages/Activity';
 import Skills from './pages/Skills';
@@ -11,11 +12,11 @@ import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import DashboardLayout from './components/DashboardLayout';
 
-// Checks if the user checked "Keep me signed in" previously
 function RootRedirect() {
   const hasSavedSession =
     localStorage.getItem('keep_signed_in') === 'true' &&
     localStorage.getItem('is_authenticated') === 'true' &&
+    Boolean(localStorage.getItem('token')) &&
     Boolean(localStorage.getItem('user'));
 
   return <Navigate to={hasSavedSession ? '/dashboard' : '/login'} replace />;
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="/login" element={<Auth />} />
           <Route path="/register" element={<Auth />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           <Route path="/dashboard" element={<DashboardLayout><Dashboard /></DashboardLayout>} />
           <Route path="/activity" element={<DashboardLayout><Activity /></DashboardLayout>} />

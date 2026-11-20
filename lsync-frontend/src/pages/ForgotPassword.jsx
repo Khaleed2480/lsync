@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Mail, ArrowLeft, CheckCircle, AlertCircle, KeyRound } from 'lucide-react';
+import { apiRequest } from '../utils/api';
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -8,7 +9,7 @@ export default function ForgotPassword() {
   const [errorMessage, setErrorMessage] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
 
@@ -23,10 +24,20 @@ export default function ForgotPassword() {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+
+    try {
+      await apiRequest('/auth/forgot-password', {
+        method: 'POST',
+        skipAuth: true,
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+
       setIsSubmitted(true);
-    }, 1200);
+    } catch (err) {
+      setErrorMessage(err.message || 'Unable to send reset link. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleResetAgain = () => {
@@ -35,7 +46,6 @@ export default function ForgotPassword() {
     setErrorMessage('');
   };
 
-  // Subtle background particle positions
   const particles = [
     { left: '12%', size: 'w-1.5 h-1.5', color: 'bg-[#F3A737]/50', duration: '9s', delay: '0s' },
     { left: '25%', size: 'w-2 h-2', color: 'bg-[#EB577F]/40', duration: '12s', delay: '2s' },
@@ -47,8 +57,6 @@ export default function ForgotPassword() {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 md:p-8 bg-[#120A22] font-sans select-none relative overflow-hidden">
-      
-      {/* ================= CUSTOM BACKGROUND KEYFRAME ANIMATIONS ================= */}
       <style>{`
         @keyframes haloPulse {
           0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.45; }
@@ -82,19 +90,14 @@ export default function ForgotPassword() {
         .animate-key-float { animation: keyFloat 3.5s ease-in-out infinite; }
       `}</style>
 
-      {/* ================= ANIMATED BACKGROUND LAYER ================= */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        
-        {/* Drifting Orchid & Coral Orbs */}
         <div className="absolute top-[15%] left-[18%] w-96 h-96 bg-[#7038C4]/30 rounded-full blur-[130px] animate-orb-1" />
         <div className="absolute bottom-[12%] right-[18%] w-96 h-96 bg-[#EB577F]/25 rounded-full blur-[130px] animate-orb-2" />
         <div className="absolute top-[55%] left-[55%] w-72 h-72 bg-[#F3A737]/15 rounded-full blur-[120px] animate-orb-1" style={{ animationDelay: '3s' }} />
 
-        {/* Concentric Breathing Circles Behind the Card (Matching Your Screenshot) */}
         <div className="absolute top-1/2 left-1/2 w-[500px] h-[500px] sm:w-[620px] sm:h-[620px] rounded-full bg-[#3A1E6E]/25 border border-[#7038C4]/15 animate-halo-inner" />
         <div className="absolute top-1/2 left-1/2 w-[680px] h-[680px] sm:w-[820px] sm:h-[820px] rounded-full border border-[#EB577F]/10 animate-halo-outer" />
 
-        {/* Floating Light Particles */}
         {particles.map((p, idx) => (
           <span
             key={idx}
@@ -107,11 +110,8 @@ export default function ForgotPassword() {
         ))}
       </div>
 
-      {/* ================= MAIN FORGOT PASSWORD CARD ================= */}
       <div className="relative z-10 w-full max-w-md">
         <div className="rounded-3xl p-8 sm:p-10 backdrop-blur-2xl bg-[#1A0F2E]/85 border border-[#7038C4]/45 shadow-[0_15px_60px_-10px_rgba(112,56,196,0.4)]">
-          
-          {/* Header Icon */}
           <div className="text-center mb-6">
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#7038C4] to-[#EB577F] shadow-lg shadow-[#EB577F]/25 mb-4 ring-4 ring-[#7038C4]/25 animate-key-float">
               <KeyRound className="w-7 h-7 text-[#FAF7F2]" />
@@ -128,7 +128,6 @@ export default function ForgotPassword() {
             </p>
           </div>
 
-          {/* Error Message */}
           {errorMessage && (
             <div className="flex items-center gap-2 p-3 mb-5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs font-medium">
               <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
@@ -136,7 +135,6 @@ export default function ForgotPassword() {
             </div>
           )}
 
-          {/* Condition 1: Form Input */}
           {!isSubmitted ? (
             <form onSubmit={handleSubmit} autoComplete="on" className="space-y-5">
               <div>
@@ -174,26 +172,33 @@ export default function ForgotPassword() {
               </button>
             </form>
           ) : (
-            /* Condition 2: Dispatched View */
             <div className="space-y-4 text-center">
               <div className="p-4 rounded-2xl bg-[#120A22]/80 border border-[#3A2263] flex items-center gap-3 text-left">
                 <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
                 <p className="text-xs text-[#FAF7F2]/80">
-                  Did not see it? Please check your spam folder or wait up to 2 minutes.
+                  Check your inbox (or spam folder) for the reset token link.
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleResetAgain}
-                className="text-xs text-[#F3A737] hover:underline font-semibold cursor-pointer"
-              >
-                Entered the wrong email? Try again
-              </button>
+              <div className="flex flex-col gap-2">
+                <Link
+                  to="/reset-password"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#7038C4] to-[#EB577F] text-white text-xs font-bold shadow-md"
+                >
+                  Already have your reset token? Enter it here
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={handleResetAgain}
+                  className="text-xs text-[#F3A737] hover:underline font-semibold cursor-pointer mt-1"
+                >
+                  Entered the wrong email? Try again
+                </button>
+              </div>
             </div>
           )}
 
-          {/* Back to Sign In Link */}
           <div className="mt-7 pt-5 border-t border-[#3A2263]/60 text-center">
             <Link
               to="/login"
@@ -203,10 +208,8 @@ export default function ForgotPassword() {
               Back to Sign In
             </Link>
           </div>
-
         </div>
       </div>
-
     </div>
   );
 }
