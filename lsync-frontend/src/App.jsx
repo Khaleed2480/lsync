@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
+import Landing from './pages/Landing';
 import Auth from './pages/Auth';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
@@ -13,14 +14,14 @@ import Settings from './pages/Settings';
 import PublicPortfolio from './pages/PublicPortfolio';
 import DashboardLayout from './components/DashboardLayout';
 
-function RootRedirect() {
+function HomeRoute() {
   const hasSavedSession =
     localStorage.getItem('keep_signed_in') === 'true' &&
     localStorage.getItem('is_authenticated') === 'true' &&
     Boolean(localStorage.getItem('token')) &&
     Boolean(localStorage.getItem('user'));
 
-  return <Navigate to={hasSavedSession ? '/dashboard' : '/login'} replace />;
+  return hasSavedSession ? <Navigate to="/dashboard" replace /> : <Landing />;
 }
 
 export default function App() {
@@ -28,7 +29,7 @@ export default function App() {
     <AppProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<RootRedirect />} />
+          <Route path="/" element={<HomeRoute />} />
           <Route path="/login" element={<Auth />} />
           <Route path="/register" element={<Auth />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
