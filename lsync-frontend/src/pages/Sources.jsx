@@ -101,15 +101,30 @@ export default function Sources() {
   };
 
   // ================= 2. GITHUB OAUTH & REPOSITORY SYNC =================
-  // ================= 2. GITHUB OAUTH & REPOSITORY SYNC =================
-  const handleConnectGitHub = () => {
+  const handleConnectGitHub = async () => {
     setErrorMsg('');
-    setStatusMsg('Redirecting to GitHub...');
-    const token = localStorage.getItem('token');
+    setStatusMsg('Connecting to GitHub...');
 
-    // Opens the backend OAuth route directly so GitHub can show the authorization page!
-    window.location.href = `https://lsync-1-0-0-1.onrender.com/api/integrations/github/connect?token=${token}`;
+    try {
+      // 1. Sends the JWT token in headers!
+      const data = await apiRequest('/integrations/github/connect', { method: 'GET' });
+
+      // 2. Extracts GitHub's official authorization URL from backend
+      const targetUrl = data.url || data.authUrl || data.redirectUrl || data.data?.url;
+
+      if (targetUrl) {
+        // Jumps straight to GitHub's authorization page!
+        window.location.href = targetUrl;
+      } else {
+        console.log('GitHub connect response:', data);
+        setStatusMsg('Connected! Checking repositories...');
+        handleLoadGitHubRepos();
+      }
+    } catch (err) {
+      setErrorMsg(err.message || 'Could not connect to GitHub.');
+    }
   };
+
 
   const handleLoadGitHubRepos = async () => {
     setLoadingRepos(true);
