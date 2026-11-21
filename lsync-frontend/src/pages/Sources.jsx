@@ -101,22 +101,14 @@ export default function Sources() {
   };
 
   // ================= 2. GITHUB OAUTH & REPOSITORY SYNC =================
-  const handleConnectGitHub = async () => {
+  // ================= 2. GITHUB OAUTH & REPOSITORY SYNC =================
+  const handleConnectGitHub = () => {
     setErrorMsg('');
-    setStatusMsg('');
-    try {
-      const data = await apiRequest('/integrations/github/connect', { method: 'GET' });
-      const redirectUrl = data.url || data.authUrl || data.redirectUrl;
-      if (redirectUrl) {
-        window.location.href = redirectUrl;
-      } else {
-        setStatusMsg('GitHub OAuth initiated! Checking repositories...');
-        handleLoadGitHubRepos();
-      }
-    } catch (err) {
-      // Fallback: if backend redirects directly via browser URL with token
-      setErrorMsg(err.message || 'Could not start GitHub connection.');
-    }
+    setStatusMsg('Redirecting to GitHub...');
+    const token = localStorage.getItem('token');
+
+    // Opens the backend OAuth route directly so GitHub can show the authorization page!
+    window.location.href = `https://lsync-1-0-0-1.onrender.com/api/integrations/github/connect?token=${token}`;
   };
 
   const handleLoadGitHubRepos = async () => {
