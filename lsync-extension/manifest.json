@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "LSync Learning Tracker",
+  "version": "1.0.0",
+  "description": "Automatically tracks YouTube educational watch hours and syncs them to your LSync portfolio.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://lsync-1-0-0-1.onrender.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "LSync Tracker"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}

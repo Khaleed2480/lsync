@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LSync Tracker</title>
+  <style>
+    * { box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
+    body {
+      width: 310px;
+      margin: 0;
+      padding: 16px;
+      background: #140C24;
+      color: #FAF7F2;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .brand {
+      font-weight: 800;
+      font-size: 18px;
+      letter-spacing: 0.5px;
+    }
+    .brand span { color: #F4A836; }
+    .badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #251842;
+      color: #9CA3AF;
+    }
+    .badge.active {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34D399;
+    }
+    .card {
+      background: #1E1233;
+      border: 1px solid #3A2263;
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      color: #D1D5DB;
+    }
+    input {
+      width: 100%;
+      padding: 9px 10px;
+      border-radius: 10px;
+      border: 1px solid #3A2263;
+      background: #120A22;
+      color: #FFFFFF;
+      font-size: 12px;
+      outline: none;
+      margin-bottom: 10px;
+    }
+    input:focus { border-color: #EB577F; }
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      color: white;
+      background: linear-gradient(to right, #7038C4, #EB577F);
+    }
+    button:hover { opacity: 0.92; }
+    .sync-btn {
+      background: #F4A836;
+      color: #140C24;
+      margin-top: 6px;
+    }
+    .status {
+      font-size: 11px;
+      margin-top: 8px;
+      text-align: center;
+      min-height: 16px;
+    }
+    .last-synced {
+      font-size: 11px;
+      color: #9CA3AF;
+      line-height: 1.4;
+    }
+    .last-synced strong { color: #FAF7F2; display: block; margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">L<span>Sync</span> Tracker</div>
+    <div id="statusBadge" class="badge">Not Linked</div>
+  </div>
+
+  <div class="card">
+    <label for="tokenInput">Extension Token (From Sources Page)</label>
+    <input type="text" id="tokenInput" placeholder="Paste your LSync token here..." />
+    <button id="saveBtn">Save &amp; Link Extension</button>
+    <div id="msg" class="status"></div>
+  </div>
+
+  <div class="card">
+    <div class="last-synced">
+      Last Synced Activity:
+      <strong id="lastTitle">None yet</strong>
+    </div>
+    <button id="syncNowBtn" class="sync-btn">Sync Current YouTube Video</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
