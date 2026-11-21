@@ -1,22 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   RefreshCw,
   Plus,
   Check,
+  ExternalLink,
+  Globe,
+  Trash2,
   X,
   KeyRound,
   Copy,
   GitBranch,
   AlertCircle,
   CheckCircle2,
-  Trash2,
   Link2,
 } from 'lucide-react';
 import { apiRequest, BASE_URL } from '../utils/api';
 
 export default function Sources() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   // Platform Catalog & Linked Accounts
   const [platforms, setPlatforms] = useState([]);
@@ -55,9 +58,14 @@ export default function Sources() {
 
   // ================= 1. FETCH PLATFORMS & LINKED ACCOUNTS ON LOAD =================
   useEffect(() => {
+    // Check if returning from GitHub OAuth redirect
+    if (searchParams.get('github') === 'connected' || searchParams.get('status') === 'success') {
+      setStatusMsg('GitHub authorized successfully! Loading repositories...');
+      handleLoadGitHubRepos();
+    }
+
     const loadSourcesData = async () => {
       try {
-        // Fetch available platforms
         const platRes = await apiRequest('/platforms/platform', { method: 'GET' });
         const platList = Array.isArray(platRes)
           ? platRes
@@ -67,7 +75,6 @@ export default function Sources() {
         console.log('Platforms fetch note:', err.message);
       }
 
-      // Fetch user's current linked accounts via /users/me
       if (localStorage.getItem('token')) {
         try {
           const meRes = await apiRequest('/users/me', { method: 'GET' });
@@ -75,7 +82,6 @@ export default function Sources() {
           const accounts = userObj.accounts || userObj.linkedAccounts || [];
           setLinkedAccounts(accounts);
 
-          // Sync connected platform names to localStorage for Dashboard/Analytics/Skills
           const names = accounts.map(
             (acc) => acc.platform?.name || acc.platformName || acc.platformUsername || 'Connected Source'
           );
@@ -91,7 +97,6 @@ export default function Sources() {
     loadSourcesData();
   }, []);
 
-  // Helper to update localStorage connected_platforms list
   const syncConnectedStorage = (newAccountsList, extraName) => {
     const names = newAccountsList.map(
       (a) => a.platform?.name || a.platformName || a.name || 'Platform'
@@ -100,31 +105,35 @@ export default function Sources() {
     localStorage.setItem('connected_platforms', JSON.stringify(names));
   };
 
-  // ================= 2. GITHUB OAUTH & REPOSITORY SYNC =================
+  // ================= 2. GITHUB OAUTH (USES authorizationUrl!) =================
   const handleConnectGitHub = async () => {
     setErrorMsg('');
     setStatusMsg('Connecting to GitHub...');
 
     try {
-      // 1. Sends the JWT token in headers!
       const data = await apiRequest('/integrations/github/connect', { method: 'GET' });
+      console.log('GitHub connect response:', data);
 
-      // 2. Extracts GitHub's official authorization URL from backend
-      const targetUrl = data.url || data.authUrl || data.redirectUrl || data.data?.url;
+      // LOOKS DIRECTLY FOR authorizationUrl!
+      const targetUrl =
+        data.authorizationUrl ||
+        data.url ||
+        data.authUrl ||
+        data.redirectUrl ||
+        data.data?.authorizationUrl ||
+        data.data?.url;
 
       if (targetUrl) {
-        // Jumps straight to GitHub's authorization page!
+        setStatusMsg('Redirecting to official GitHub authorization page...');
+        // Jumps immediately to GitHub.com!
         window.location.href = targetUrl;
       } else {
-        console.log('GitHub connect response:', data);
-        setStatusMsg('Connected! Checking repositories...');
-        handleLoadGitHubRepos();
+        setErrorMsg('Server did not return a valid GitHub authorization URL.');
       }
     } catch (err) {
       setErrorMsg(err.message || 'Could not connect to GitHub.');
     }
   };
-
 
   const handleLoadGitHubRepos = async () => {
     setLoadingRepos(true);
@@ -136,10 +145,12 @@ export default function Sources() {
         : data.repositories || data.repos || data.data || [];
       setGithubRepos(repos);
       if (repos.length === 0) {
-        setStatusMsg('No GitHub repositories found. Make sure GitHub is authorized first.');
+        setStatusMsg('No repositories found for this GitHub account.');
+      } else {
+        setStatusMsg(`Loaded ${repos.length} repositories from GitHub!`);
       }
     } catch (err) {
-      setErrorMsg(err.message || 'Please authorize GitHub first before loading repositories.');
+      setErrorMsg('No connected GitHub account found. Please click "Authorize GitHub" first.');
     } finally {
       setLoadingRepos(false);
     }
@@ -158,7 +169,6 @@ export default function Sources() {
       });
       setStatusMsg(`Synced commits from ${owner}/${repoName} as learning evidence!`);
 
-      // Mark GitHub as connected in localStorage
       const current = JSON.parse(localStorage.getItem('connected_platforms') || '[]');
       if (!current.includes('GitHub')) {
         localStorage.setItem('connected_platforms', JSON.stringify([...current, 'GitHub']));
@@ -175,18 +185,19 @@ export default function Sources() {
     setErrorMsg('');
     try {
       const data = await apiRequest('/integrations/youtube/connect', { method: 'GET' });
-      const redirectUrl = data.url || data.authUrl || data.redirectUrl;
+      const redirectUrl =
+        data.authorizationUrl || data.url || data.authUrl || data.redirectUrl;
       if (redirectUrl) {
         window.location.href = redirectUrl;
       } else {
         window.open(`${BASE_URL}/api/integrations/youtube/connect`, '_blank');
       }
     } catch (err) {
-      setErrorMsg(err.message || 'Use the Chrome Extension Token below to track YouTube watch hours!');
+      setErrorMsg('Use the Chrome Extension Token below to track YouTube watch hours!');
     }
   };
 
-  // ================= 4. CHROME EXTENSION TOKEN (GENERATE / REVOKE) =================
+  // ================= 4. CHROME EXTENSION TOKEN =================
   const handleGenerateExtensionToken = async () => {
     setGeneratingExtToken(true);
     setErrorMsg('');
@@ -197,9 +208,9 @@ export default function Sources() {
       if (tokenVal) {
         setExtensionToken(tokenVal);
         localStorage.setItem('extension_token', tokenVal);
-        setStatusMsg('Chrome Extension token generated! Copy and paste it into your extension.');
+        setStatusMsg('Chrome Extension token generated! Copy it into your extension.');
       } else {
-        setStatusMsg('Extension link generated! Check backend response.');
+        setStatusMsg('Extension token generated!');
       }
     } catch (err) {
       setErrorMsg(err.message || 'Could not generate extension token.');
@@ -230,7 +241,7 @@ export default function Sources() {
     setTimeout(() => setCopiedExtToken(false), 2000);
   };
 
-  // ================= 5. LINK PLATFORM ACCOUNT (POST /users/accounts) =================
+  // ================= 5. LINK PLATFORM ACCOUNT =================
   const handleLinkPlatformSubmit = async (e) => {
     e.preventDefault();
     if (!linkModalPlatform) return;
@@ -239,7 +250,6 @@ export default function Sources() {
     setStatusMsg('');
 
     try {
-      // Find matching platformId from backend catalog if available
       const matched = platforms.find(
         (p) => p.name?.toLowerCase() === linkModalPlatform.toLowerCase()
       );
@@ -290,7 +300,7 @@ export default function Sources() {
     }
   };
 
-  // ================= 6. CREATE CUSTOM PLATFORM (POST /platforms/platform) =================
+  // ================= 6. CREATE CUSTOM PLATFORM =================
   const handleCreateCustomPlatform = async (e) => {
     e.preventDefault();
     if (!customName.trim()) return;
@@ -313,7 +323,7 @@ export default function Sources() {
     }
   };
 
-  // ================= 7. BLOGS / DOCS LINK INGESTION (POST /logs/log) =================
+  // ================= 7. BLOGS / DOCS LINK INGESTION =================
   const handleAddWebsiteLog = async (e) => {
     e.preventDefault();
     if (!websiteUrl.trim()) return;
@@ -400,7 +410,7 @@ export default function Sources() {
         </div>
       )}
 
-      {/* Top Action: Add Custom Platform */}
+      {/* Action Row */}
       <div className="flex justify-end mb-6">
         <button
           type="button"
@@ -412,10 +422,10 @@ export default function Sources() {
         </button>
       </div>
 
-      {/* ================= INTEGRATION CARDS GRID ================= */}
+      {/* INTEGRATIONS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
         
-        {/* 1. GITHUB INTEGRATION CARD (OAuth + Repo Sync) */}
+        {/* 1. GITHUB INTEGRATION CARD */}
         <div className="bg-white rounded-3xl p-6 sm:p-7 border border-gray-100 shadow-xs flex flex-col justify-between md:col-span-2">
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -426,7 +436,7 @@ export default function Sources() {
                 <div>
                   <h3 className="text-base font-bold text-[#1A102F]">GitHub Integration</h3>
                   <span className="text-xs text-gray-400 font-medium">
-                    Authorize GitHub & sync repository commits as verified coding proof
+                    Authorize GitHub &amp; sync repository commits as verified coding proof
                   </span>
                 </div>
               </div>
@@ -451,7 +461,7 @@ export default function Sources() {
               </div>
             </div>
 
-            {/* Loaded GitHub Repositories List */}
+            {/* Repositories List */}
             {githubRepos.length > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-100 space-y-2 max-h-60 overflow-y-auto">
                 <span className="text-xs font-bold text-[#1A102F] block mb-2">
@@ -474,7 +484,7 @@ export default function Sources() {
                       disabled={syncingRepo === repo.name}
                       className="px-3 py-1.5 rounded-lg bg-[#633BB3] hover:bg-[#522F9E] text-white text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5"
                     >
-                      <RefreshCw className={`w-3 h-3 ${syncingRepo === repo.name ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`w-3.5 h-3.5 ${syncingRepo === repo.name ? 'animate-spin' : ''}`} />
                       <span>{syncingRepo === repo.name ? 'Syncing...' : 'Sync Commits'}</span>
                     </button>
                   </div>
@@ -484,7 +494,7 @@ export default function Sources() {
           </div>
         </div>
 
-        {/* 2. CHROME EXTENSION & YOUTUBE TRACKING CARD */}
+        {/* 2. CHROME EXTENSION CARD */}
         <div className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-[#633BB3]/25 shadow-xs flex flex-col justify-between">
           <div>
             <div className="flex items-start justify-between mb-4">
@@ -495,7 +505,7 @@ export default function Sources() {
                   </svg>
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-[#1A102F]">YouTube & Chrome Extension</h3>
+                  <h3 className="text-base font-bold text-[#1A102F]">YouTube &amp; Chrome Extension</h3>
                   <span className="text-xs text-gray-400 font-medium">Automatic video watch tracking</span>
                 </div>
               </div>
@@ -526,7 +536,7 @@ export default function Sources() {
                   onClick={copyExtensionToken}
                   className="text-[11px] font-bold text-[#633BB3] hover:underline shrink-0 flex items-center gap-1 cursor-pointer"
                 >
-                  <Copy className="w-3 h-3" />
+                  <Copy className="w-3.5 h-3.5" />
                   <span>{copiedExtToken ? 'Copied!' : 'Copy'}</span>
                 </button>
               </div>
@@ -563,7 +573,7 @@ export default function Sources() {
           </div>
         </div>
 
-        {/* 3. BLOGS & DOCUMENTATION CARD (POST /logs/log) */}
+        {/* 3. BLOGS & DOCUMENTATION CARD */}
         <div className="bg-white rounded-3xl p-6 sm:p-7 border border-gray-100 shadow-xs flex flex-col justify-between">
           <div>
             <div className="flex items-center gap-3 mb-4">
@@ -572,7 +582,7 @@ export default function Sources() {
               </div>
               <div>
                 <h3 className="text-base font-bold text-[#1A102F]">Blogs and documentation</h3>
-                <span className="text-xs text-gray-400 font-medium">Log articles & technical docs</span>
+                <span className="text-xs text-gray-400 font-medium">Log articles &amp; technical docs</span>
               </div>
             </div>
 
@@ -599,7 +609,7 @@ export default function Sources() {
           </button>
         </div>
 
-        {/* 4. COURSERA, UDEMY, EDX & CUSTOM PLATFORMS */}
+        {/* 4. OTHER PLATFORMS */}
         {[
           { name: 'Coursera', type: 'Online courses', badge: 'C', bg: 'bg-blue-50 text-[#0056D2]' },
           { name: 'Udemy', type: 'Online courses', badge: 'U', bg: 'bg-[#5B21B6] text-white' },
@@ -686,7 +696,7 @@ export default function Sources() {
         </button>
       </div>
 
-      {/* ================= MODAL: LINK PLATFORM ACCOUNT (POST /users/accounts) ================= */}
+      {/* MODAL: LINK PLATFORM */}
       {linkModalPlatform && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-gray-100">
@@ -752,7 +762,7 @@ export default function Sources() {
         </div>
       )}
 
-      {/* ================= MODAL: CREATE CUSTOM PLATFORM (POST /platforms/platform) ================= */}
+      {/* MODAL: CREATE CUSTOM PLATFORM */}
       {showCustomModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-gray-100">
