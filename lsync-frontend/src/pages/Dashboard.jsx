@@ -10,7 +10,10 @@ import {
   Sparkles,
   Calendar,
   Check,
-  ArrowRight
+  ArrowRight,
+  Link2,
+  BookOpen,
+  X,
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -26,7 +29,7 @@ export default function Dashboard() {
 
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // ================= AUTOMATIC PLATFORM DETECTION =================
+  // Automatic Platform Detection
   const [connectedPlatforms, setConnectedPlatforms] = useState(() => {
     try {
       const stored = localStorage.getItem('connected_platforms');
@@ -35,6 +38,14 @@ export default function Dashboard() {
       }
     } catch (e) {}
     return [];
+  });
+
+  // Warm Welcome Onboarding Modal (Shows automatically for new users on first visit)
+  const [showWelcomeModal, setShowWelcomeModal] = useState(() => {
+    return (
+      connectedPlatforms.length === 0 &&
+      sessionStorage.getItem('lsync_welcome_dismissed') !== 'true'
+    );
   });
 
   useEffect(() => {
@@ -53,11 +64,15 @@ export default function Dashboard() {
     }
   }, []);
 
-  const displayName = user.fullName || user.name || user.username || 'Daniel Okunlola';
+  const dismissWelcomeModal = () => {
+    sessionStorage.setItem('lsync_welcome_dismissed', 'true');
+    setShowWelcomeModal(false);
+  };
+
+  const displayName = user.fullName || user.name || user.username || 'Learner';
   const firstName = displayName.split(' ')[0];
   const username = user.username || displayName.toLowerCase().replace(/\s+/g, '-');
 
-  // Live Sync Status
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [lastSynced, setLastSynced] = useState('Just now');
   const [timeRange, setTimeRange] = useState('12 weeks');
@@ -71,7 +86,7 @@ export default function Dashboard() {
   };
 
   const handleSharePortfolio = async () => {
-    const shareUrl = `${window.location.origin}/profile`;
+    const shareUrl = `${window.location.origin}/portfolio/${username}`;
     const shareData = {
       title: `${displayName}'s Verified Learning Portfolio | LSync`,
       text: `Check out my verified learning achievements, skills, and progress on LSync!`,
@@ -129,6 +144,95 @@ export default function Dashboard() {
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-7xl mx-auto w-full space-y-6 font-sans">
       
+      {/* ================= WARM WELCOME ONBOARDING MODAL ================= */}
+      {showWelcomeModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-purple-100 animate-[fadeIn_0.3s_ease-out]">
+            {/* Gradient Top Banner */}
+            <div className="bg-gradient-to-r from-[#4D12A8] via-[#633BB3] to-[#EB577F] p-6 sm:p-8 text-white relative">
+              <button
+                type="button"
+                onClick={dismissWelcomeModal}
+                className="absolute top-4 right-4 p-2 rounded-full bg-white/15 hover:bg-white/25 text-white cursor-pointer transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 text-[#F4A836] text-[10px] font-black uppercase tracking-widest mb-3">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Welcome to LSync</span>
+              </div>
+
+              <h2 className="text-2xl sm:text-3xl font-black leading-tight">
+                Glad you’re here, {firstName}! 🎉
+              </h2>
+              <p className="text-xs sm:text-sm text-white/85 mt-2 leading-relaxed">
+                Your unified learning portfolio is ready. Connect your favorite platforms or log your first study session to see your dashboard come alive!
+              </p>
+            </div>
+
+            {/* Guided Quick Actions */}
+            <div className="p-6 sm:p-8 space-y-3.5">
+              <button
+                type="button"
+                onClick={() => {
+                  dismissWelcomeModal();
+                  navigate('/sources');
+                }}
+                className="w-full p-4 rounded-2xl bg-[#F8F6FD] hover:bg-[#EFEAFB] border border-[#D4C6F7] flex items-center justify-between gap-4 text-left transition cursor-pointer group"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-[#633BB3] text-white flex items-center justify-center shrink-0">
+                    <Link2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-[#1A102F]">
+                      1. Connect Your Learning Platforms
+                    </h4>
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      Link GitHub, Coursera, or your YouTube Chrome Extension.
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-[#633BB3] group-hover:translate-x-1 transition shrink-0" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  dismissWelcomeModal();
+                  navigate('/activity');
+                }}
+                className="w-full p-4 rounded-2xl bg-[#FFF9F2] hover:bg-[#FEF1E1] border border-[#F4A836]/40 flex items-center justify-between gap-4 text-left transition cursor-pointer group"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-[#F4A836] text-[#1A102F] flex items-center justify-center shrink-0">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-[#1A102F]">
+                      2. Log What You Learned Today
+                    </h4>
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      Record a course lesson, article, or coding project in 10 seconds.
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-[#F4A836] group-hover:translate-x-1 transition shrink-0" />
+              </button>
+
+              <button
+                type="button"
+                onClick={dismissWelcomeModal}
+                className="w-full py-3 mt-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-xs font-bold text-gray-600 transition cursor-pointer"
+              >
+                Explore Dashboard First
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Header Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -204,7 +308,7 @@ export default function Dashboard() {
               Share your verified growth with recruiters and employers
             </h3>
             <p className="text-xs text-white/80 font-medium mt-0.5">
-              lsync.app/@{username}
+              lsync.app/portfolio/{username}
             </p>
           </div>
         </div>
@@ -228,7 +332,7 @@ export default function Dashboard() {
           </button>
 
           <button
-            onClick={() => navigate('/profile')}
+            onClick={() => navigate(`/portfolio/${username}`)}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white hover:bg-gray-100 text-[#4D12A8] text-xs font-extrabold shadow-md transition cursor-pointer active:scale-95"
           >
             <ExternalLink className="w-3.5 h-3.5" />
@@ -259,7 +363,7 @@ export default function Dashboard() {
             {connectedPlatforms.length === 0 ? '0' : '18'}
           </div>
           <span className="text-xs font-bold text-emerald-600 mt-2 inline-block">
-            Assignments & PRs passed
+            Assignments &amp; PRs passed
           </span>
         </div>
 
@@ -294,10 +398,10 @@ export default function Dashboard() {
         <div>
           <h3 className="text-sm font-extrabold text-[#1A102F] flex items-center gap-2">
             <Calendar className="w-4 h-4 text-[#633BB3]" />
-            Weekly Study Habit & Calendar Consistency
+            Weekly Study Habit &amp; Calendar Consistency
           </h3>
           <p className="text-xs text-gray-500 font-medium mt-0.5">
-            Synced with your real-time calendar. Active learning detected on 6 of the last 7 days.
+            Synced with your real-time calendar. Active learning detected on {connectedPlatforms.length === 0 ? '0' : '6'} of the last 7 days.
           </p>
         </div>
 
@@ -335,7 +439,6 @@ export default function Dashboard() {
 
       {/* Middle Row: EXACT FIGMA LINE CHART STARTING AT WK 1 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
         <div className="lg:col-span-2 bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm flex flex-col justify-between">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <div>
@@ -374,19 +477,16 @@ export default function Dashboard() {
               </div>
             ) : (
               <svg className="w-full h-auto overflow-visible" viewBox="0 0 520 205">
-                {/* Horizontal Dotted Grid Lines */}
                 <line x1="45" y1="20" x2="485" y2="20" stroke="#F1F3F7" strokeWidth="1" strokeDasharray="3,3" />
                 <line x1="45" y1="70" x2="485" y2="70" stroke="#F1F3F7" strokeWidth="1" strokeDasharray="3,3" />
                 <line x1="45" y1="120" x2="485" y2="120" stroke="#F1F3F7" strokeWidth="1" strokeDasharray="3,3" />
                 <line x1="45" y1="170" x2="485" y2="170" stroke="#E5E7EB" strokeWidth="1" />
 
-                {/* Y-Axis Labels */}
                 <text x="34" y="24" textAnchor="end" fontSize="10" fontWeight="600" fill="#6B7280">15 h</text>
                 <text x="34" y="74" textAnchor="end" fontSize="10" fontWeight="600" fill="#6B7280">10</text>
                 <text x="34" y="124" textAnchor="end" fontSize="10" fontWeight="600" fill="#6B7280">5</text>
                 <text x="34" y="174" textAnchor="end" fontSize="10" fontWeight="600" fill="#6B7280">0</text>
 
-                {/* Area Gradient Fill */}
                 <defs>
                   <linearGradient id="figmaAreaGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#633BB3" stopOpacity="0.24" />
@@ -394,13 +494,11 @@ export default function Dashboard() {
                   </linearGradient>
                 </defs>
 
-                {/* Shaded Area starting EXACTLY at Wk 1 (x=45, y=128) up to Wk 12 (x=485, y=45) */}
                 <polygon
                   points="45,128 85,120 125,110 165,120 205,102 245,90 285,100 325,80 365,65 405,70 445,54 485,45 485,170 45,170"
                   fill="url(#figmaAreaGrad)"
                 />
 
-                {/* Line starting EXACTLY at Wk 1 (x=45, y=128) */}
                 <polyline
                   points="45,128 85,120 125,110 165,120 205,102 245,90 285,100 325,80 365,65 405,70 445,54 485,45"
                   fill="none"
@@ -410,36 +508,27 @@ export default function Dashboard() {
                   strokeLinecap="round"
                 />
 
-                {/* Hollow Circles + Labels exactly matching Figma */}
-                {/* Wk 3: 6 */}
                 <circle cx="125" cy="110" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
                 <text x="125" y="96" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">6</text>
 
-                {/* Wk 4: 5 */}
                 <circle cx="165" cy="120" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
                 <text x="165" y="106" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">5</text>
 
-                {/* Wk 6: 8 */}
                 <circle cx="245" cy="90" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
                 <text x="245" y="76" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">8</text>
 
-                {/* Wk 7: 7 */}
                 <circle cx="285" cy="100" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
                 <text x="285" y="86" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">7</text>
 
-                {/* Wk 9: 10.5 */}
                 <circle cx="365" cy="65" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
                 <text x="365" y="51" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">10.5</text>
 
-                {/* Wk 10: 10 */}
                 <circle cx="405" cy="70" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
                 <text x="405" y="56" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">10</text>
 
-                {/* Wk 12: 12.5 h */}
                 <circle cx="485" cy="45" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
                 <text x="485" y="31" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">12.5 h</text>
 
-                {/* X-Axis Labels aligned directly under each exact week */}
                 <text x="45" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">Wk 1</text>
                 <text x="125" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">3</text>
                 <text x="205" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">5</text>

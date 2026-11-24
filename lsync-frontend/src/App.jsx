@@ -1,5 +1,7 @@
+import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
+import SplashScreen from './components/SplashScreen';
 import Landing from './pages/Landing';
 import Auth from './pages/Auth';
 import ForgotPassword from './pages/ForgotPassword';
@@ -25,8 +27,12 @@ function HomeRoute() {
 }
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
   return (
     <AppProvider>
+      {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
+
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<HomeRoute />} />
