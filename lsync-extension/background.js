@@ -11,11 +11,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function handleRecordWatchEvent(payload) {
-  const storage = await chrome.storage.local.get(['extensionToken', 'loginToken']);
-  const token = storage.extensionToken || storage.loginToken;
+  const storage = await chrome.storage.local.get(['extensionToken']);
+  const token = storage.extensionToken;
 
   if (!token) {
-    throw new Error('Not signed in. Open the LSync extension icon and sign in first.');
+    throw new Error('No extension token found. Click "Disconnect & Sign Out" and sign in fresh.');
   }
 
   const response = await fetch(API_ENDPOINT, {
@@ -23,6 +23,7 @@ async function handleRecordWatchEvent(payload) {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
+      'x-extension-token': token,
     },
     body: JSON.stringify({
       title: payload.title,
@@ -36,10 +37,20 @@ async function handleRecordWatchEvent(payload) {
     }),
   });
 
-  const data = await response.json().catch(() => ({}));
+  const rawText = await response.text();
+  let data = {};
+  try {
+    data = JSON.parse(rawText);
+  } catch (e) {}
 
   if (!response.ok || data.success === false) {
-    throw new Error(data.message || data.error || `Server error (${response.status})`);
+    const serverMsg =
+      data.message ||
+      data.error ||
+      (Array.isArray(data.errors) && data.errors[0]?.msg) ||
+      rawText.slice(0, 80);
+
+    throw new Error(`Error ${response.status}: ${serverMsg}`);
   }
 
   await chrome.storage.local.set({
