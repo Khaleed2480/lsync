@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusBadge.classList.remove('active');
   }
 
-  // ================= STEP 1 & 2: SIGN IN -> AUTO-LINK EXTENSION =================
+  // ================= 1. SIGN IN -> AUTO-LINK EXTENSION =================
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     loginMsg.style.color = '#F4A836';
@@ -48,7 +48,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     loginBtn.disabled = true;
 
     try {
-      // 1. Sign in via POST /api/auth/login
       const loginRes = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -69,7 +68,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         loginData.user?.fullName ||
         emailInput.value.split('@')[0];
 
-      // 2. Link extension via POST /api/extension/link using JWT
       loginMsg.textContent = 'Linking extension...';
       const linkRes = await fetch(`${API_BASE}/extension/link`, {
         method: 'POST',
@@ -85,10 +83,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       const extToken =
-        linkData.token ||
         linkData.extensionToken ||
-        linkData.data?.token ||
+        linkData.token ||
+        linkData.key ||
+        linkData.apiKey ||
         linkData.data?.extensionToken ||
+        linkData.data?.token ||
         jwt;
 
       await chrome.storage.local.set({
@@ -107,7 +107,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // ================= STEP 3: MANUAL SYNC CURRENT YOUTUBE VIDEO =================
+  // ================= 2. MANUAL SYNC CURRENT YOUTUBE VIDEO =================
   syncNowBtn.addEventListener('click', async () => {
     syncMsg.style.color = '#F4A836';
     syncMsg.textContent = 'Recording video...';
@@ -136,7 +136,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // ================= STEP 4: LIST RECORDED EVENTS (GET /api/watch-events) =================
+  // ================= 3. LIST RECORDED EVENTS =================
   async function fetchRecordedEvents() {
     eventsList.innerHTML =
       '<div style="font-size:11px; color:#9CA3AF; text-align:center; padding:8px 0;">Loading...</div>';
@@ -145,24 +145,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const authToken = keys.extensionToken || keys.loginToken;
 
     try {
-      let res = await fetch(`${API_BASE}/watch-events?page=1&limit=20`, {
+      const res = await fetch(`${API_BASE}/watch-events?page=1&limit=20`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`,
+          'x-extension-token': authToken,
         },
       });
-
-      // Fallback: if GET expects login JWT instead of extension token
-      if (res.status === 401 && keys.loginToken && authToken !== keys.loginToken) {
-        res = await fetch(`${API_BASE}/watch-events?page=1&limit=20`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${keys.loginToken}`,
-          },
-        });
-      }
 
       const data = await res.json().catch(() => ({}));
       const items = Array.isArray(data)
@@ -194,9 +184,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  refreshEvents.addEventListener('click', fetchRecordedEvents);
+  if (refreshEvents) {
+    refreshEvents.addEventListener('click', fetchRecordedEvents);
+  }
 
-  // Disconnect / Sign Out
   logoutBtn.addEventListener('click', async () => {
     await chrome.storage.local.remove(['extensionToken', 'loginToken', 'userName']);
     showLoginView();

@@ -1,214 +1,189 @@
-const API_BASE = 'https://lsync-1-0-0-1.onrender.com/api';
-
-document.addEventListener('DOMContentLoaded', async () => {
-  const loginView = document.getElementById('loginView');
-  const connectedView = document.getElementById('connectedView');
-  const statusBadge = document.getElementById('statusBadge');
-
-  const loginForm = document.getElementById('loginForm');
-  const emailInput = document.getElementById('emailInput');
-  const passwordInput = document.getElementById('passwordInput');
-  const loginBtn = document.getElementById('loginBtn');
-  const loginMsg = document.getElementById('loginMsg');
-
-  const userNameDisplay = document.getElementById('userNameDisplay');
-  const syncNowBtn = document.getElementById('syncNowBtn');
-  const syncMsg = document.getElementById('syncMsg');
-  const eventsList = document.getElementById('eventsList');
-  const refreshEvents = document.getElementById('refreshEvents');
-  const logoutBtn = document.getElementById('logoutBtn');
-
-  const stored = await chrome.storage.local.get(['extensionToken', 'loginToken', 'userName']);
-  if (stored.extensionToken) {
-    showConnectedView(stored.userName || 'LSync Learner');
-    fetchRecordedEvents();
-  }
-
-  function showConnectedView(name) {
-    loginView.classList.add('hidden');
-    connectedView.classList.remove('hidden');
-    statusBadge.textContent = '● Linked';
-    statusBadge.classList.add('active');
-    userNameDisplay.textContent = name;
-  }
-
-  function showLoginView() {
-    connectedView.classList.add('hidden');
-    loginView.classList.remove('hidden');
-    statusBadge.textContent = 'Not Linked';
-    statusBadge.classList.remove('active');
-  }
-
-  // ================= STEP 1 & 2: SIGN IN -> AUTO-LINK EXTENSION =================
-  loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    loginMsg.style.color = '#F4A836';
-    loginMsg.textContent = 'Signing in...';
-    loginBtn.disabled = true;
-
-    try {
-      // 1. Sign in via POST /api/auth/login
-      const loginRes = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: emailInput.value.trim().toLowerCase(),
-          password: passwordInput.value,
-        }),
-      });
-      const loginData = await loginRes.json().catch(() => ({}));
-
-      if (!loginRes.ok || loginData.success === false) {
-        throw new Error(loginData.message || 'Invalid email or password.');
-      }
-
-      const jwt = loginData.token || loginData.accessToken || loginData.data?.token;
-      const userName =
-        loginData.user?.name ||
-        loginData.user?.fullName ||
-        emailInput.value.split('@')[0];
-
-      // 2. Link extension via POST /api/extension/link using JWT
-      loginMsg.textContent = 'Linking extension...';
-      const linkRes = await fetch(`${API_BASE}/extension/link`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
-      });
-      const linkData = await linkRes.json().catch(() => ({}));
-      console.log('[LSync] /extension/link response:', linkData);
-
-      if (!linkRes.ok || linkData.success === false) {
-        throw new Error(linkData.message || 'Could not link extension.');
-      }
-
-      // Check all common token property names returned by backend
-      const extToken =
-        linkData.extensionToken ||
-        linkData.token ||
-        linkData.key ||
-        linkData.apiKey ||
-        linkData.secret ||
-        linkData.data?.extensionToken ||
-        linkData.data?.token ||
-        linkData.data?.key;
-
-      if (!extToken) {
-        throw new Error('Server linked but did not return an extensionToken field.');
-      }
-
-      await chrome.storage.local.set({
-        loginToken: jwt,
-        extensionToken: extToken,
-        userName,
-      });
-
-      showConnectedView(userName);
-      fetchRecordedEvents();
-    } catch (err) {
-      loginMsg.style.color = '#F87171';
-      loginMsg.textContent = err.message || 'Connection failed.';
-    } finally {
-      loginBtn.disabled = false;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LSync Tracker</title>
+  <style>
+    * { box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
+    body {
+      width: 330px;
+      margin: 0;
+      padding: 16px;
+      background: #140C24;
+      color: #FAF7F2;
     }
-  });
-
-  // ================= STEP 3: MANUAL SYNC CURRENT YOUTUBE VIDEO =================
-  syncNowBtn.addEventListener('click', async () => {
-    syncMsg.style.color = '#F4A836';
-    syncMsg.textContent = 'Recording video...';
-
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !tab.url || !tab.url.includes('youtube.com/watch')) {
-      syncMsg.style.color = '#F87171';
-      syncMsg.textContent = 'Please open a YouTube video first.';
-      return;
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
     }
-
-    chrome.tabs.sendMessage(tab.id, { type: 'MANUAL_SYNC_CURRENT_VIDEO' }, (response) => {
-      if (chrome.runtime.lastError || !response) {
-        syncMsg.style.color = '#F87171';
-        syncMsg.textContent = 'Refresh the YouTube tab and try again.';
-        return;
-      }
-      if (response.success) {
-        syncMsg.style.color = '#34D399';
-        syncMsg.textContent = 'Watch event recorded!';
-        fetchRecordedEvents();
-      } else {
-        syncMsg.style.color = '#F87171';
-        syncMsg.textContent = response.error || 'Sync failed.';
-      }
-    });
-  });
-
-  // ================= STEP 4: LIST RECORDED EVENTS =================
-  async function fetchRecordedEvents() {
-    eventsList.innerHTML =
-      '<div style="font-size:11px; color:#9CA3AF; text-align:center; padding:8px 0;">Loading...</div>';
-
-    const keys = await chrome.storage.local.get(['extensionToken', 'loginToken']);
-    const authToken = keys.extensionToken || keys.loginToken;
-
-    try {
-      let res = await fetch(`${API_BASE}/watch-events?page=1&limit=20`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-          'x-extension-token': authToken,
-        },
-      });
-
-      if (res.status === 401 && keys.loginToken && authToken !== keys.loginToken) {
-        res = await fetch(`${API_BASE}/watch-events?page=1&limit=20`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${keys.loginToken}`,
-          },
-        });
-      }
-
-      const data = await res.json().catch(() => ({}));
-      const items = Array.isArray(data)
-        ? data
-        : data.events || data.watchEvents || data.data || [];
-
-      if (items.length === 0) {
-        eventsList.innerHTML =
-          '<div style="font-size:11px; color:#9CA3AF; text-align:center; padding:10px 0;">No YouTube events recorded yet.</div>';
-        return;
-      }
-
-      eventsList.innerHTML = items
-        .slice(0, 10)
-        .map((ev) => {
-          const title = ev.title || ev.videoTitle || 'YouTube Study Video';
-          const mins = ev.durationMinutes || Math.max(1, Math.round((ev.durationSeconds || 60) / 60));
-          return `
-            <div class="event-item">
-              <div class="event-title" title="${title}">${title}</div>
-              <div class="event-time">${mins} min</div>
-            </div>
-          `;
-        })
-        .join('');
-    } catch (err) {
-      eventsList.innerHTML =
-        '<div style="font-size:11px; color:#F87171; text-align:center; padding:8px 0;">Could not load events.</div>';
+    .brand {
+      font-weight: 900;
+      font-size: 18px;
+      letter-spacing: 0.5px;
     }
-  }
+    .brand span { color: #F4A836; }
+    .badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: #251842;
+      color: #9CA3AF;
+    }
+    .badge.active {
+      background: rgba(16, 185, 129, 0.18);
+      color: #34D399;
+    }
+    .card {
+      background: #1E1233;
+      border: 1px solid #3A2263;
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 5px;
+      color: #D1D5DB;
+    }
+    input {
+      width: 100%;
+      padding: 9px 11px;
+      border-radius: 10px;
+      border: 1px solid #3A2263;
+      background: #120A22;
+      color: #FFFFFF;
+      font-size: 12px;
+      outline: none;
+      margin-bottom: 10px;
+    }
+    input:focus { border-color: #EB577F; }
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      color: white;
+      background: linear-gradient(to right, #7038C4, #EB577F);
+    }
+    button:hover { opacity: 0.92; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .sync-btn {
+      background: #F4A836;
+      color: #140C24;
+      font-weight: 800;
+    }
+    .logout-btn {
+      background: transparent;
+      border: 1px solid #3A2263;
+      color: #F87171;
+      margin-top: 8px;
+      padding: 7px;
+      font-size: 11px;
+    }
+    .status {
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 8px;
+      text-align: center;
+      min-height: 15px;
+    }
+    .user-info {
+      font-size: 11px;
+      color: #D1D5DB;
+      margin-bottom: 10px;
+    }
+    .user-info strong { color: #FAF7F2; font-size: 13px; display: block; }
+    .events-list {
+      max-height: 135px;
+      overflow-y: auto;
+      margin-top: 8px;
+    }
+    .event-item {
+      background: #120A22;
+      border: 1px solid #2A1B4A;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .event-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #FAF7F2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 195px;
+    }
+    .event-time {
+      font-size: 10px;
+      font-weight: 700;
+      color: #F4A836;
+      flex-shrink: 0;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">L<span>Sync</span> Tracker</div>
+    <div id="statusBadge" class="badge">Not Linked</div>
+  </div>
 
-  refreshEvents.addEventListener('click', fetchRecordedEvents);
+  <!-- VIEW 1: SIGN IN (When not linked) -->
+  <div id="loginView" class="card">
+    <form id="loginForm">
+      <label for="emailInput">Email Address</label>
+      <input type="email" id="emailInput" placeholder="e.g. daniel@example.com" required />
 
-  // Disconnect / Sign Out
-  logoutBtn.addEventListener('click', async () => {
-    await chrome.storage.local.remove(['extensionToken', 'loginToken', 'userName']);
-    showLoginView();
-    loginMsg.textContent = '';
-    syncMsg.textContent = '';
-  });
-});
+      <label for="passwordInput">Password</label>
+      <input type="password" id="passwordInput" placeholder="••••••••" required />
+
+      <button type="submit" id="loginBtn">Sign In &amp; Link Extension</button>
+    </form>
+    <div id="loginMsg" class="status"></div>
+  </div>
+
+  <!-- VIEW 2: CONNECTED VIEW -->
+  <div id="connectedView" class="hidden">
+    <div class="card">
+      <div class="user-info">
+        Signed in as:
+        <strong id="userNameDisplay">LSync Learner</strong>
+      </div>
+
+      <button id="syncNowBtn" class="sync-btn">Sync Current YouTube Video</button>
+      <div id="syncMsg" class="status"></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <label style="margin:0;">Recorded YouTube Events</label>
+        <span id="refreshEvents" style="font-size:10px; color:#F4A836; cursor:pointer; font-weight:700;">↻ Refresh</span>
+      </div>
+      <div id="eventsList" class="events-list">
+        <div style="font-size:11px; color:#9CA3AF; text-align:center; padding:10px 0;">
+          Loading watch history...
+        </div>
+      </div>
+
+      <button id="logoutBtn" class="logout-btn">Disconnect &amp; Sign Out</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
