@@ -11,6 +11,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Link2,
+  ExternalLink,
 } from 'lucide-react';
 import { apiRequest, BASE_URL } from '../utils/api';
 
@@ -22,8 +23,10 @@ export default function Sources() {
   const [platforms, setPlatforms] = useState([]);
   const [linkedAccounts, setLinkedAccounts] = useState([]);
 
-  // GitHub Integration State
+  // GitHub Integration State (Matches James's exact JSON shape!)
   const [isGithubConnected, setIsGithubConnected] = useState(false);
+  const [githubUsername, setGithubUsername] = useState('');
+  const [githubTotalCount, setGithubTotalCount] = useState(0);
   const [githubRepos, setGithubRepos] = useState([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [syncingRepo, setSyncingRepo] = useState(null);
@@ -54,7 +57,7 @@ export default function Sources() {
   const [statusMsg, setStatusMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
-  // ================= 1. FETCH PLATFORMS, ACCOUNTS & GITHUB STATUS ON LOAD =================
+  // ================= 1. FETCH PLATFORMS, ACCOUNTS & REAL GITHUB REPOS ON LOAD =================
   useEffect(() => {
     const githubParam = searchParams.get('github') || searchParams.get('status');
     if (githubParam === 'connected' || githubParam === 'success') {
@@ -68,9 +71,7 @@ export default function Sources() {
           ? platRes
           : platRes.platforms || platRes.data || [];
         setPlatforms(platList);
-      } catch (err) {
-        console.log('Platforms fetch note:', err.message);
-      }
+      } catch (err) {}
 
       if (localStorage.getItem('token')) {
         try {
@@ -85,28 +86,29 @@ export default function Sources() {
           if (names.length > 0) {
             localStorage.setItem('connected_platforms', JSON.stringify(names));
           }
-        } catch (err) {
-          console.log('Could not load /users/me accounts:', err.message);
-        }
+        } catch (err) {}
 
-        // Silently check if GitHub is already connected and load repos automatically
+        // Auto-load real GitHub repositories
         try {
           const ghData = await apiRequest('/integrations/github/repositories?page=1&perPage=30', {
             method: 'GET',
           });
-          const repos = Array.isArray(ghData)
+          const repos = Array.isArray(ghData?.data)
+            ? ghData.data
+            : Array.isArray(ghData)
             ? ghData
-            : ghData.repositories || ghData.repos || ghData.data || [];
+            : ghData.repositories || [];
+
           setGithubRepos(repos);
+          setGithubTotalCount(ghData?.count ?? repos.length);
+          if (ghData?.username) setGithubUsername(ghData.username);
           setIsGithubConnected(true);
 
           const current = JSON.parse(localStorage.getItem('connected_platforms') || '[]');
           if (!current.includes('GitHub')) {
             localStorage.setItem('connected_platforms', JSON.stringify([...current, 'GitHub']));
           }
-        } catch (ghErr) {
-          // GitHub not connected yet — stay quiet without showing a red error on load
-        }
+        } catch (ghErr) {}
       }
     };
 
@@ -122,15 +124,13 @@ export default function Sources() {
     localStorage.setItem('connected_platforms', JSON.stringify(names));
   };
 
-  // ================= 2. GITHUB OAUTH & REPOSITORIES (?page=1&perPage=30) =================
+  // ================= 2. GITHUB OAUTH & REPOSITORIES =================
   const handleConnectGitHub = async () => {
     setErrorMsg('');
     setStatusMsg('Connecting to GitHub...');
 
     try {
       const data = await apiRequest('/integrations/github/connect', { method: 'GET' });
-      console.log('GitHub connect response:', data);
-
       const targetUrl =
         data.authorizationUrl ||
         data.url ||
@@ -155,15 +155,19 @@ export default function Sources() {
     setErrorMsg('');
     setStatusMsg('');
     try {
-      const data = await apiRequest('/integrations/github/repositories?page=1&perPage=30', {
+      const ghData = await apiRequest('/integrations/github/repositories?page=1&perPage=30', {
         method: 'GET',
       });
-      console.log('GitHub repos response:', data);
 
-      const repos = Array.isArray(data)
-        ? data
-        : data.repositories || data.repos || data.data || [];
+      const repos = Array.isArray(ghData?.data)
+        ? ghData.data
+        : Array.isArray(ghData)
+        ? ghData
+        : ghData.repositories || [];
+
       setGithubRepos(repos);
+      setGithubTotalCount(ghData?.count ?? repos.length);
+      if (ghData?.username) setGithubUsername(ghData.username);
       setIsGithubConnected(true);
 
       const current = JSON.parse(localStorage.getItem('connected_platforms') || '[]');
@@ -172,9 +176,9 @@ export default function Sources() {
       }
 
       if (repos.length === 0) {
-        setStatusMsg('GitHub connected! No repositories found on this account.');
+        setStatusMsg('GitHub connected! No repositories found.');
       } else {
-        setStatusMsg(`Loaded ${repos.length} GitHub repositories!`);
+        setStatusMsg(`Loaded ${repos.length} repositories for @${ghData?.username || 'GitHub'}!`);
       }
     } catch (err) {
       setErrorMsg(err.message || 'Could not load GitHub repositories. Please authorize GitHub first.');
@@ -184,12 +188,15 @@ export default function Sources() {
   };
 
   const handleSyncRepoCommits = async (repo) => {
+    // Handles James's exact field: fullName ("JamesMadeIt1/Authentication_Basics_USE")
     const owner =
+      (repo.fullName && repo.fullName.split('/')[0]) ||
+      githubUsername ||
       repo.owner?.login ||
-      repo.owner ||
-      (repo.full_name ? repo.full_name.split('/')[0] : 'user');
+      'user';
     const repoName =
-      repo.name || (repo.full_name ? repo.full_name.split('/')[1] : '');
+      repo.name ||
+      (repo.fullName && repo.fullName.split('/')[1]);
 
     setSyncingRepo(repoName);
     setErrorMsg('');
@@ -453,7 +460,7 @@ export default function Sources() {
       {/* INTEGRATIONS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
         
-        {/* 1. GITHUB INTEGRATION CARD */}
+        {/* 1. GITHUB INTEGRATION CARD (SHOWS REAL REPOS FROM data) */}
         <div className="bg-white rounded-3xl p-6 sm:p-7 border border-gray-100 shadow-xs flex flex-col justify-between md:col-span-2">
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -462,12 +469,14 @@ export default function Sources() {
                   G
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-[#1A102F]">GitHub Integration</h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base font-bold text-[#1A102F]">
+                      GitHub Integration {githubUsername && `(@${githubUsername})`}
+                    </h3>
                     {isGithubConnected && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700">
                         <Check className="w-3 h-3 stroke-[3]" />
-                        Connected
+                        Connected ({githubTotalCount} repos)
                       </span>
                     )}
                   </div>
@@ -492,35 +501,48 @@ export default function Sources() {
                   className="px-4 py-2 rounded-xl border border-[#633BB3] text-[#633BB3] hover:bg-purple-50 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
                 >
                   <GitBranch className="w-3.5 h-3.5" />
-                  <span>{loadingRepos ? 'Loading Repos...' : 'Load Repositories'}</span>
+                  <span>{loadingRepos ? 'Loading Repos...' : 'Refresh Repositories'}</span>
                 </button>
               </div>
             </div>
 
-            {/* Repositories List */}
+            {/* Real User Repositories List */}
             {githubRepos.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-gray-100 space-y-2 max-h-60 overflow-y-auto">
+              <div className="mt-4 pt-4 border-t border-gray-100 space-y-2.5 max-h-80 overflow-y-auto pr-1">
                 <span className="text-xs font-bold text-[#1A102F] block mb-2">
-                  Select a repository to sync commits ({githubRepos.length} repositories):
+                  Your GitHub Repositories ({githubRepos.length} shown of {githubTotalCount}):
                 </span>
                 {githubRepos.map((repo) => (
                   <div
-                    key={repo.id || repo.name}
-                    className="flex items-center justify-between p-3 rounded-xl bg-[#F8F9FC] border border-gray-200/70"
+                    key={repo.githubId || repo.id || repo.name}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#F8F9FC] border border-gray-200/70"
                   >
-                    <div>
-                      <h4 className="text-xs font-bold text-[#1A102F]">
-                        {repo.name || repo.full_name}
-                      </h4>
-                      <span className="text-[10px] text-gray-400">
-                        {repo.language || 'Code'} • {repo.private ? 'Private' : 'Public'}
-                      </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-bold text-[#1A102F] truncate">
+                          {repo.name}
+                        </h4>
+                        {repo.url && (
+                          <a
+                            href={repo.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-gray-400 hover:text-[#633BB3]"
+                            title="View on GitHub"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-1">
+                        {repo.description || repo.fullName}
+                      </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => handleSyncRepoCommits(repo)}
                       disabled={syncingRepo === repo.name}
-                      className="px-3 py-1.5 rounded-lg bg-[#633BB3] hover:bg-[#522F9E] text-white text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5"
+                      className="px-3.5 py-1.5 rounded-xl bg-[#633BB3] hover:bg-[#522F9E] text-white text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5 shrink-0 self-end sm:self-center"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${syncingRepo === repo.name ? 'animate-spin' : ''}`} />
                       <span>{syncingRepo === repo.name ? 'Syncing...' : 'Sync Commits'}</span>
@@ -558,7 +580,7 @@ export default function Sources() {
             </div>
 
             <p className="text-xs text-gray-500 leading-relaxed mb-4">
-              Generate an Extension Token to link your Chrome Extension and automatically record YouTube tutorial watch hours.
+              Sign in directly inside our Chrome Extension or generate a token below to track YouTube tutorials automatically.
             </p>
 
             {extensionToken && (

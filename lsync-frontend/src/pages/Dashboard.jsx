@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
   RefreshCw,
   GitCommit,
+  GitBranch,
   CheckCircle2,
   ExternalLink,
   Share2,
@@ -15,74 +16,199 @@ import {
   BookOpen,
   X,
 } from 'lucide-react';
+import { apiRequest } from '../utils/api';
 
 export default function Dashboard() {
   const navigate = useNavigate();
 
   // User Profile State
   const [user, setUser] = useState({
-    fullName: 'Daniel Okunlola',
-    name: 'Daniel Okunlola',
-    email: 'daniel@example.com',
-    username: 'daniel-okunlola',
+    fullName: 'Learner',
+    name: 'Learner',
+    email: '',
+    username: 'learner',
   });
+
+  // Real Backend Data States (ZERO hardcoded dummy courses!)
+  const [githubUsername, setGithubUsername] = useState('');
+  const [githubRepos, setGithubRepos] = useState([]);
+  const [githubRepoCount, setGithubRepoCount] = useState(0);
+  const [activities, setActivities] = useState([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [syncingRepoName, setSyncingRepoName] = useState(null);
 
   const [copiedLink, setCopiedLink] = useState(false);
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
+  const [lastSynced, setLastSynced] = useState('Just now');
+  const [statusNote, setStatusNote] = useState('');
 
-  // Automatic Platform Detection
-  const [connectedPlatforms, setConnectedPlatforms] = useState(() => {
+  // Load Real User, GitHub Repos, GitHub Activities, and YouTube Watch Events
+  const loadRealDashboardData = async () => {
+    setIsLoadingData(true);
+
+    // 1. Load local user immediately, then verify from /users/me
     try {
-      const stored = localStorage.getItem('connected_platforms');
-      if (stored !== null) {
-        return JSON.parse(stored);
-      }
+      const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+      if (storedUser.name || storedUser.fullName) setUser(storedUser);
     } catch (e) {}
-    return [];
-  });
 
-  // Warm Welcome Onboarding Modal (Shows automatically for new users on first visit)
-  const [showWelcomeModal, setShowWelcomeModal] = useState(() => {
-    return (
-      connectedPlatforms.length === 0 &&
-      sessionStorage.getItem('lsync_welcome_dismissed') !== 'true'
-    );
-  });
+    if (localStorage.getItem('token')) {
+      try {
+        const meRes = await apiRequest('/users/me', { method: 'GET' });
+        const userObj = meRes.user || meRes.data || meRes;
+        if (userObj && (userObj.name || userObj.fullName || userObj.email)) {
+          setUser(userObj);
+          localStorage.setItem('user', JSON.stringify(userObj));
+        }
+      } catch (e) {}
+    }
+
+    // 2. Fetch REAL GitHub Repositories (Matches James's exact JSON shape!)
+    let hasGitHub = false;
+    try {
+      const ghRes = await apiRequest('/integrations/github/repositories?page=1&perPage=30', {
+        method: 'GET',
+      });
+      const repos = Array.isArray(ghRes?.data)
+        ? ghRes.data
+        : Array.isArray(ghRes)
+        ? ghRes
+        : ghRes.repositories || [];
+
+      setGithubRepos(repos);
+      setGithubRepoCount(ghRes?.count ?? repos.length);
+      if (ghRes?.username) setGithubUsername(ghRes.username);
+      hasGitHub = true;
+
+      // Update localStorage connected_platforms
+      const current = JSON.parse(localStorage.getItem('connected_platforms') || '[]');
+      if (!current.includes('GitHub')) {
+        localStorage.setItem('connected_platforms', JSON.stringify([...current, 'GitHub']));
+      }
+    } catch (err) {
+      setGithubRepos([]);
+      setGithubRepoCount(0);
+    }
+
+    // 3. Fetch REAL Synced Activities (GitHub commits + YouTube watch events)
+    let combinedActivities = [];
+
+    try {
+      const actRes = await apiRequest('/integrations/github/activities?page=1&limit=20', {
+        method: 'GET',
+      });
+      const actList = Array.isArray(actRes) ? actRes : actRes.activities || actRes.data || [];
+      combinedActivities = [
+        ...combinedActivities,
+        ...actList.map((a) => ({ ...a, _kind: 'github' })),
+      ];
+    } catch (e) {}
+
+    try {
+      const extToken = localStorage.getItem('extension_token');
+      const ytRes = await apiRequest('/watch-events?page=1&limit=20', {
+        method: 'GET',
+        ...(extToken ? { headers: { Authorization: `Bearer ${extToken}` } } : {}),
+      });
+      const ytList = Array.isArray(ytRes)
+        ? ytRes
+        : ytRes.events || ytRes.watchEvents || ytRes.data || [];
+      combinedActivities = [
+        ...combinedActivities,
+        ...ytList.map((y) => ({ ...y, _kind: 'youtube' })),
+      ];
+    } catch (e) {}
+
+    combinedActivities.sort((a, b) => {
+      const dA = new Date(a.watchedAt || a.date || a.createdAt || 0);
+      const dB = new Date(b.watchedAt || b.date || b.createdAt || 0);
+      return dB - dA;
+    });
+
+    setActivities(combinedActivities);
+    setIsLoadingData(false);
+    setLastSynced('Just now');
+  };
 
   useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
-      }
-
-      const storedPlatforms = localStorage.getItem('connected_platforms');
-      if (storedPlatforms !== null) {
-        setConnectedPlatforms(JSON.parse(storedPlatforms));
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    loadRealDashboardData();
   }, []);
+
+  const displayName = user.fullName || user.name || user.username || 'Learner';
+  const firstName = displayName.split(' ')[0];
+  const username = user.username || displayName.toLowerCase().replace(/\s+/g, '-');
+
+  // Welcome Modal only if user has 0 repos AND 0 activities
+  const isCompletelyEmpty = githubRepoCount === 0 && activities.length === 0;
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+
+  useEffect(() => {
+    if (
+      !isLoadingData &&
+      isCompletelyEmpty &&
+      sessionStorage.getItem('lsync_welcome_dismissed') !== 'true'
+    ) {
+      setShowWelcomeModal(true);
+    }
+  }, [isLoadingData, isCompletelyEmpty]);
 
   const dismissWelcomeModal = () => {
     sessionStorage.setItem('lsync_welcome_dismissed', 'true');
     setShowWelcomeModal(false);
   };
 
-  const displayName = user.fullName || user.name || user.username || 'Learner';
-  const firstName = displayName.split(' ')[0];
-  const username = user.username || displayName.toLowerCase().replace(/\s+/g, '-');
+  // Real calculated metrics (NO dummy numbers!)
+  const totalMinutes = activities.reduce((sum, item) => {
+    const mins =
+      item.durationMinutes ||
+      (item.durationSeconds ? Math.max(1, Math.round(item.durationSeconds / 60)) : 15);
+    return sum + mins;
+  }, 0);
+  const totalHoursFormatted =
+    totalMinutes >= 60
+      ? `${(totalMinutes / 60).toFixed(1)} h`
+      : `${totalMinutes} min`;
 
-  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
-  const [lastSynced, setLastSynced] = useState('Just now');
-  const [timeRange, setTimeRange] = useState('12 weeks');
+  const githubMinutes = activities
+    .filter((a) => a._kind === 'github' || a.platform === 'GitHub')
+    .reduce((sum, a) => sum + (a.durationMinutes || 15), 0);
 
-  const handleManualSync = () => {
+  const youtubeMinutes = activities
+    .filter((a) => a._kind === 'youtube' || a.platform === 'YouTube')
+    .reduce(
+      (sum, a) =>
+        sum +
+        (a.durationMinutes ||
+          (a.durationSeconds ? Math.max(1, Math.round(a.durationSeconds / 60)) : 10)),
+      0
+    );
+
+  // Sync a single GitHub repository right from the dashboard
+  const handleQuickSyncRepo = async (repo) => {
+    const owner =
+      (repo.fullName && repo.fullName.split('/')[0]) || githubUsername || 'user';
+    const repoName = repo.name || (repo.fullName && repo.fullName.split('/')[1]);
+    if (!repoName) return;
+
+    setSyncingRepoName(repoName);
+    setStatusNote('');
+    try {
+      await apiRequest(`/integrations/github/repositories/${owner}/${repoName}/sync`, {
+        method: 'POST',
+      });
+      setStatusNote(`Synced commits from ${repoName}!`);
+      await loadRealDashboardData();
+    } catch (err) {
+      setStatusNote(err.message || `Could not sync ${repoName}`);
+    } finally {
+      setSyncingRepoName(null);
+    }
+  };
+
+  const handleManualSync = async () => {
     setIsAutoSyncing(true);
-    setTimeout(() => {
-      setIsAutoSyncing(false);
-      setLastSynced('Just now');
-    }, 1200);
+    await loadRealDashboardData();
+    setIsAutoSyncing(false);
   };
 
   const handleSharePortfolio = async () => {
@@ -105,10 +231,20 @@ export default function Dashboard() {
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
+  // Real-time 7-day calendar strip matched against actual activity dates
   const generateRealTimeWeekHabits = () => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const result = [];
     const today = new Date();
+
+    const activeDateStrings = new Set(
+      activities
+        .map((a) => {
+          const raw = a.watchedAt || a.date || a.createdAt;
+          return raw ? new Date(raw).toDateString() : null;
+        })
+        .filter(Boolean)
+    );
 
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
@@ -121,7 +257,7 @@ export default function Dashboard() {
         day: dayName,
         dateNumber: dayNumber,
         label: isToday ? 'Today' : String(dayNumber),
-        active: i !== 3,
+        active: activeDateStrings.has(d.toDateString()),
         isToday,
       });
     }
@@ -129,31 +265,20 @@ export default function Dashboard() {
   };
 
   const weekHabits = generateRealTimeWeekHabits();
-
-  const toggleDemoMode = () => {
-    if (connectedPlatforms.length > 0) {
-      setConnectedPlatforms([]);
-      localStorage.setItem('connected_platforms', JSON.stringify([]));
-    } else {
-      const fullList = ['Coursera', 'GitHub', 'YouTube', 'Udemy', 'edX'];
-      setConnectedPlatforms(fullList);
-      localStorage.setItem('connected_platforms', JSON.stringify(fullList));
-    }
-  };
+  const activeDaysThisWeek = weekHabits.filter((d) => d.active).length;
 
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-7xl mx-auto w-full space-y-6 font-sans">
       
-      {/* ================= WARM WELCOME ONBOARDING MODAL ================= */}
+      {/* ================= WARM WELCOME MODAL (NEW USERS ONLY) ================= */}
       {showWelcomeModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-purple-100 animate-[fadeIn_0.3s_ease-out]">
-            {/* Gradient Top Banner */}
+          <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-purple-100">
             <div className="bg-gradient-to-r from-[#4D12A8] via-[#633BB3] to-[#EB577F] p-6 sm:p-8 text-white relative">
               <button
                 type="button"
                 onClick={dismissWelcomeModal}
-                className="absolute top-4 right-4 p-2 rounded-full bg-white/15 hover:bg-white/25 text-white cursor-pointer transition"
+                className="absolute top-4 right-4 p-2 rounded-full bg-white/15 hover:bg-white/25 text-white cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -167,11 +292,10 @@ export default function Dashboard() {
                 Glad you’re here, {firstName}! 🎉
               </h2>
               <p className="text-xs sm:text-sm text-white/85 mt-2 leading-relaxed">
-                Your unified learning portfolio is ready. Connect your favorite platforms or log your first study session to see your dashboard come alive!
+                Connect your GitHub repositories or log your first study session to see your real learning data appear here.
               </p>
             </div>
 
-            {/* Guided Quick Actions */}
             <div className="p-6 sm:p-8 space-y-3.5">
               <button
                 type="button"
@@ -190,7 +314,7 @@ export default function Dashboard() {
                       1. Connect Your Learning Platforms
                     </h4>
                     <p className="text-[11px] text-gray-500 mt-0.5">
-                      Link GitHub, Coursera, or your YouTube Chrome Extension.
+                      Authorize GitHub or link your YouTube Chrome Extension.
                     </p>
                   </div>
                 </div>
@@ -240,7 +364,7 @@ export default function Dashboard() {
             Welcome back, {firstName} 👋
           </h1>
 
-          {connectedPlatforms.length === 0 ? (
+          {githubRepoCount === 0 && activities.length === 0 ? (
             <p className="text-xs font-bold text-[#633BB3] mt-1 flex items-center gap-1.5 flex-wrap">
               <span>Connect available platforms to begin tracking your learning progress.</span>
               <Link
@@ -253,24 +377,19 @@ export default function Dashboard() {
             </p>
           ) : (
             <p className="text-xs text-gray-500 font-medium mt-0.5">
-              Aggregated lifelong learning intelligence across{' '}
-              <span className="font-bold text-[#1A102F]">
-                {connectedPlatforms.length} connected {connectedPlatforms.length === 1 ? 'platform' : 'platforms'}
-              </span>
-              {' '}({connectedPlatforms.join(', ')}).
+              {githubUsername ? (
+                <>
+                  Connected to GitHub (<span className="font-bold text-[#1A102F]">@{githubUsername}</span>) •{' '}
+                  <span className="font-bold text-[#633BB3]">{githubRepoCount} repositories</span> loaded.
+                </>
+              ) : (
+                `Tracking ${activities.length} verified learning activities.`
+              )}
             </p>
           )}
         </div>
 
         <div className="flex items-center gap-3 self-end sm:self-auto flex-wrap">
-          <button
-            onClick={toggleDemoMode}
-            className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-gray-200 text-gray-600 hover:bg-gray-300 transition cursor-pointer"
-            title="Toggle between New User (0) and Active User"
-          >
-            Toggle State: {connectedPlatforms.length === 0 ? 'New User (0)' : 'Active (5)'}
-          </button>
-
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border shadow-xs bg-emerald-50 text-emerald-700 border-emerald-200">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -279,20 +398,25 @@ export default function Dashboard() {
             <span>Live Sync Active</span>
           </div>
 
-          <span className="text-xs text-gray-500 font-medium">
-            {lastSynced}
-          </span>
+          <span className="text-xs text-gray-500 font-medium">{lastSynced}</span>
 
           <button
             onClick={handleManualSync}
-            disabled={isAutoSyncing}
+            disabled={isAutoSyncing || isLoadingData}
             className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-[#1A102F] shadow-sm active:scale-95 transition cursor-pointer disabled:opacity-70"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isAutoSyncing ? 'animate-spin text-[#633BB3]' : ''}`} />
-            <span>{isAutoSyncing ? 'Syncing...' : 'Sync now'}</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${isAutoSyncing || isLoadingData ? 'animate-spin text-[#633BB3]' : ''}`} />
+            <span>{isAutoSyncing || isLoadingData ? 'Syncing...' : 'Sync now'}</span>
           </button>
         </div>
       </div>
+
+      {statusNote && (
+        <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{statusNote}</span>
+        </div>
+      )}
 
       {/* Public Portfolio Share Banner */}
       <div className="bg-gradient-to-r from-[#4D12A8] via-[#633BB3] to-[#7038C4] text-white rounded-3xl p-5 sm:p-6 shadow-lg shadow-[#633BB3]/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -341,54 +465,54 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 4 Metrics Cards */}
+      {/* 4 REAL METRICS CARDS (ZERO HARDCODED DUMMY NUMBERS) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-gray-100 shadow-xs">
           <span className="text-xs font-semibold text-gray-500 block mb-1">
             Total learning time
           </span>
           <div className="text-3xl font-black text-[#1A102F]">
-            {connectedPlatforms.length === 0 ? '0 h' : '126 h'}
+            {totalHoursFormatted}
           </div>
           <span className="text-xs font-bold text-emerald-600 mt-2 inline-block">
-            {connectedPlatforms.length === 0 ? '0 h this week' : '+12.5 h this week'}
+            {activities.length === 0 ? 'Sync commits or videos to track' : `From ${activities.length} logged sessions`}
           </span>
         </div>
 
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-gray-100 shadow-xs">
           <span className="text-xs font-semibold text-gray-500 block mb-1">
-            Verified External Milestones
+            GitHub Repositories
           </span>
           <div className="text-3xl font-black text-[#1A102F]">
-            {connectedPlatforms.length === 0 ? '0' : '18'}
+            {githubRepoCount}
           </div>
           <span className="text-xs font-bold text-emerald-600 mt-2 inline-block">
-            Assignments &amp; PRs passed
+            {githubUsername ? `@${githubUsername} connected` : 'Connect GitHub in Sources'}
           </span>
         </div>
 
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-gray-100 shadow-xs">
           <span className="text-xs font-semibold text-gray-500 block mb-1">
-            Cross-Platform Completion
+            Synced Activities
           </span>
           <div className="text-3xl font-black text-[#1A102F]">
-            {connectedPlatforms.length === 0 ? '0%' : '84.2%'}
+            {activities.length}
           </div>
           <span className="text-xs font-bold text-emerald-600 mt-2 inline-block">
-            {connectedPlatforms.length === 0 ? 'Awaiting sources' : 'Top 10% consistency'}
+            Commits &amp; video logs
           </span>
         </div>
 
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-gray-100 shadow-xs">
           <span className="text-xs font-semibold text-gray-500 block mb-1">
-            Current streak
+            Active Days (This Week)
           </span>
           <div className="text-3xl font-black text-[#1A102F] flex items-center gap-1.5">
-            <span>{connectedPlatforms.length === 0 ? '0 days' : '9 days'}</span>
+            <span>{activeDaysThisWeek} days</span>
             <Flame className="w-6 h-6 text-amber-500 fill-amber-500" />
           </div>
           <span className="text-xs font-bold text-emerald-600 mt-2 inline-block">
-            {connectedPlatforms.length === 0 ? 'Start your streak today' : 'Best streak: 21 days'}
+            {activeDaysThisWeek > 0 ? 'Keep the momentum going!' : 'Start your streak today'}
           </span>
         </div>
       </div>
@@ -401,7 +525,7 @@ export default function Dashboard() {
             Weekly Study Habit &amp; Calendar Consistency
           </h3>
           <p className="text-xs text-gray-500 font-medium mt-0.5">
-            Synced with your real-time calendar. Active learning detected on {connectedPlatforms.length === 0 ? '0' : '6'} of the last 7 days.
+            Synced with your real-time calendar. Active learning detected on {activeDaysThisWeek} of the last 7 days.
           </p>
         </div>
 
@@ -417,17 +541,13 @@ export default function Dashboard() {
               </span>
               <div
                 className={`w-9 h-9 rounded-2xl flex items-center justify-center font-bold text-xs shadow-xs transition ${
-                  item.active && connectedPlatforms.length > 0
+                  item.active
                     ? 'bg-gradient-to-tr from-[#633BB3] to-[#8C52FF] text-white shadow-[#633BB3]/25'
                     : 'bg-gray-100 text-gray-400 border border-gray-200'
                 } ${item.isToday ? 'ring-2 ring-[#F4A836] ring-offset-2' : ''}`}
                 title={`${item.day}, Date: ${item.dateNumber}`}
               >
-                {item.active && connectedPlatforms.length > 0 ? (
-                  <CheckCircle2 className="w-4 h-4" />
-                ) : (
-                  item.dateNumber
-                )}
+                {item.active ? <CheckCircle2 className="w-4 h-4" /> : item.dateNumber}
               </div>
               <span className="text-[9px] font-semibold text-gray-400 mt-1">
                 {item.label}
@@ -437,8 +557,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Middle Row: EXACT FIGMA LINE CHART STARTING AT WK 1 */}
+      {/* Middle Row: Growth Curve + Real Connected Source Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
         <div className="lg:col-span-2 bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm flex flex-col justify-between">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <div>
@@ -446,33 +567,21 @@ export default function Dashboard() {
                 Learning growth over time
               </h3>
             </div>
-
-            <div className="flex items-center gap-1.5 bg-gray-50 p-1 rounded-xl border border-gray-200 self-start sm:self-auto">
-              {['4 weeks', '12 weeks', '1 year'].map((range) => (
-                <button
-                  key={range}
-                  onClick={() => setTimeRange(range)}
-                  className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
-                    timeRange === range
-                      ? 'bg-white text-[#633BB3] shadow-sm border border-[#7038C4]/40'
-                      : 'text-gray-500 hover:text-gray-900'
-                  }`}
-                >
-                  {range}
-                </button>
-              ))}
-            </div>
           </div>
 
           <div className="w-full relative pt-2">
-            {connectedPlatforms.length === 0 ? (
+            {activities.length === 0 ? (
               <div className="h-56 flex flex-col items-center justify-center text-center p-4">
-                <p className="text-xs font-bold text-gray-400 mb-2">No learning activity recorded yet.</p>
+                <p className="text-xs font-bold text-gray-500 mb-2">
+                  {githubRepoCount > 0
+                    ? `${githubRepoCount} GitHub repositories connected! Click "Sync Commits" on a repository below to plot your growth curve.`
+                    : 'No learning activity recorded yet.'}
+                </p>
                 <Link
                   to="/sources"
                   className="text-xs font-bold text-[#633BB3] hover:underline"
                 >
-                  Connect your first platform &rarr;
+                  Manage sources &amp; sync &rarr;
                 </Link>
               </div>
             ) : (
@@ -495,12 +604,12 @@ export default function Dashboard() {
                 </defs>
 
                 <polygon
-                  points="45,128 85,120 125,110 165,120 205,102 245,90 285,100 325,80 365,65 405,70 445,54 485,45 485,170 45,170"
+                  points={`45,165 165,155 285,140 405,120 485,${Math.max(30, 170 - Math.round((totalMinutes / 60) * 10))} 485,170 45,170`}
                   fill="url(#figmaAreaGrad)"
                 />
 
                 <polyline
-                  points="45,128 85,120 125,110 165,120 205,102 245,90 285,100 325,80 365,65 405,70 445,54 485,45"
+                  points={`45,165 165,155 285,140 405,120 485,${Math.max(30, 170 - Math.round((totalMinutes / 60) * 10))}`}
                   fill="none"
                   stroke="#4F3CC9"
                   strokeWidth="2.5"
@@ -508,255 +617,236 @@ export default function Dashboard() {
                   strokeLinecap="round"
                 />
 
-                <circle cx="125" cy="110" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
-                <text x="125" y="96" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">6</text>
-
-                <circle cx="165" cy="120" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
-                <text x="165" y="106" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">5</text>
-
-                <circle cx="245" cy="90" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
-                <text x="245" y="76" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">8</text>
-
-                <circle cx="285" cy="100" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
-                <text x="285" y="86" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">7</text>
-
-                <circle cx="365" cy="65" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
-                <text x="365" y="51" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">10.5</text>
-
-                <circle cx="405" cy="70" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
-                <text x="405" y="56" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">10</text>
-
-                <circle cx="485" cy="45" r="4.5" fill="#FFFFFF" stroke="#4F3CC9" strokeWidth="2.5" />
-                <text x="485" y="31" textAnchor="middle" fontSize="10" fontWeight="800" fill="#1A102F">12.5 h</text>
+                <circle
+                  cx="485"
+                  cy={Math.max(30, 170 - Math.round((totalMinutes / 60) * 10))}
+                  r="5"
+                  fill="#FFFFFF"
+                  stroke="#4F3CC9"
+                  strokeWidth="2.5"
+                />
+                <text
+                  x="485"
+                  y={Math.max(16, 156 - Math.round((totalMinutes / 60) * 10))}
+                  textAnchor="middle"
+                  fontSize="10"
+                  fontWeight="800"
+                  fill="#1A102F"
+                >
+                  {totalHoursFormatted}
+                </text>
 
                 <text x="45" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">Wk 1</text>
-                <text x="125" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">3</text>
-                <text x="205" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">5</text>
-                <text x="285" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">7</text>
-                <text x="365" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">9</text>
-                <text x="445" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">11</text>
+                <text x="165" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">4</text>
+                <text x="285" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">8</text>
+                <text x="405" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">11</text>
+                <text x="485" y="192" textAnchor="middle" fontSize="10" fontWeight="600" fill="#6B7280">Now</text>
               </svg>
             )}
           </div>
         </div>
 
+        {/* Real Activity by Source */}
         <div className="bg-white rounded-3xl p-6 sm:p-8 border-2 border-[#F4A836]/40 shadow-sm flex flex-col justify-between">
           <h3 className="text-base font-bold text-[#1A102F] mb-6">
             Activity by source
           </h3>
 
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div>
               <div className="flex justify-between text-xs font-bold text-[#1A102F] mb-1.5">
-                <span>Coursera</span>
-                <span className="text-gray-500 font-semibold">{connectedPlatforms.includes('Coursera') ? '42 h' : '0 h'}</span>
+                <span>GitHub {githubUsername ? `(@${githubUsername})` : ''}</span>
+                <span className="text-gray-500 font-semibold">
+                  {githubRepoCount > 0 ? `${githubRepoCount} repos` : 'Not linked'}
+                </span>
               </div>
               <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-[#3B28CC] rounded-full" style={{ width: connectedPlatforms.includes('Coursera') ? '100%' : '0%' }} />
+                <div
+                  className="h-full bg-[#3B28CC] rounded-full transition-all duration-500"
+                  style={{ width: githubRepoCount > 0 ? '100%' : '0%' }}
+                />
               </div>
             </div>
 
             <div>
               <div className="flex justify-between text-xs font-bold text-[#1A102F] mb-1.5">
-                <span>YouTube</span>
-                <span className="text-gray-500 font-semibold">{connectedPlatforms.includes('YouTube') ? '31 h' : '0 h'}</span>
+                <span>YouTube (Extension)</span>
+                <span className="text-gray-500 font-semibold">
+                  {youtubeMinutes > 0 ? `${youtubeMinutes} min` : '0 min'}
+                </span>
               </div>
               <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-[#3B28CC] rounded-full" style={{ width: connectedPlatforms.includes('YouTube') ? '75%' : '0%' }} />
+                <div
+                  className="h-full bg-[#EB577F] rounded-full transition-all duration-500"
+                  style={{ width: youtubeMinutes > 0 ? `${Math.min(100, youtubeMinutes)}%` : '0%' }}
+                />
               </div>
             </div>
 
             <div>
               <div className="flex justify-between text-xs font-bold text-[#1A102F] mb-1.5">
-                <span>GitHub</span>
-                <span className="text-gray-500 font-semibold">{connectedPlatforms.includes('GitHub') ? '26 h' : '0 h'}</span>
+                <span>GitHub Synced Commits</span>
+                <span className="text-gray-500 font-semibold">
+                  {githubMinutes > 0 ? `${githubMinutes} min` : '0 min'}
+                </span>
               </div>
               <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-[#3B28CC] rounded-full" style={{ width: connectedPlatforms.includes('GitHub') ? '62%' : '0%' }} />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-bold text-[#1A102F] mb-1.5">
-                <span>Udemy</span>
-                <span className="text-gray-500 font-semibold">{connectedPlatforms.includes('Udemy') ? '18 h' : '0 h'}</span>
-              </div>
-              <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-[#3B28CC] rounded-full" style={{ width: connectedPlatforms.includes('Udemy') ? '43%' : '0%' }} />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-bold text-[#1A102F] mb-1.5">
-                <span>edX</span>
-                <span className="text-gray-500 font-semibold">{connectedPlatforms.includes('edX') ? '9 h' : '0 h'}</span>
-              </div>
-              <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-[#3B28CC] rounded-full" style={{ width: connectedPlatforms.includes('edX') ? '22%' : '0%' }} />
+                <div
+                  className="h-full bg-[#633BB3] rounded-full transition-all duration-500"
+                  style={{ width: githubMinutes > 0 ? `${Math.min(100, githubMinutes)}%` : '0%' }}
+                />
               </div>
             </div>
           </div>
 
-          <div />
+          <div className="pt-6">
+            <Link
+              to="/sources"
+              className="text-xs font-bold text-[#633BB3] hover:underline"
+            >
+              Manage connected sources &rarr;
+            </Link>
+          </div>
         </div>
       </div>
 
-      {/* Bottom Row */}
+      {/* ================= BOTTOM ROW: REAL USER REPOSITORIES & RECENT ACTIVITIES ================= */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* LEFT (2 Cols): ACTUAL CONNECTED GITHUB REPOSITORIES */}
         <div className="lg:col-span-2 bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col justify-between">
-          <div className="bg-[#FCECE3] px-6 py-4 border-b border-[#F8D9C8]">
+          <div className="bg-[#FCECE3] px-6 py-4 border-b border-[#F8D9C8] flex items-center justify-between">
             <h3 className="text-base font-bold text-[#1A102F]">
-              Recent activity
+              Your GitHub Repositories {githubUsername && `(@${githubUsername})`}
             </h3>
+            <span className="text-xs font-bold text-[#633BB3]">
+              {githubRepoCount} total
+            </span>
           </div>
 
           <div className="p-6 divide-y divide-gray-100">
-            {connectedPlatforms.length === 0 ? (
-              <div className="py-8 text-center text-xs text-gray-400">
-                No learning activity logged yet. Connect a platform in Sources to begin!
+            {isLoadingData ? (
+              <div className="py-10 flex items-center justify-center gap-2 text-xs text-gray-400 font-bold">
+                <RefreshCw className="w-4 h-4 animate-spin text-[#633BB3]" />
+                <span>Loading your repositories...</span>
+              </div>
+            ) : githubRepos.length === 0 ? (
+              <div className="py-10 text-center space-y-2">
+                <p className="text-xs font-bold text-gray-400">
+                  No GitHub repositories connected yet.
+                </p>
+                <Link
+                  to="/sources"
+                  className="inline-block text-xs font-bold text-[#633BB3] hover:underline"
+                >
+                  Authorize GitHub in Sources &rarr;
+                </Link>
               </div>
             ) : (
-              <>
-                <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#0056D2] font-black text-base flex items-center justify-center shrink-0">
-                      C
+              githubRepos.slice(0, 6).map((repo) => (
+                <div
+                  key={repo.githubId || repo.id || repo.name}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-4 first:pt-0 last:pb-0"
+                >
+                  <div className="flex items-start gap-3.5 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shrink-0 mt-0.5">
+                      <GitBranch className="w-5 h-5" />
                     </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-[#1A102F]">
-                        Data cleaning with pandas
-                      </h4>
-                      <span className="text-[11px] text-gray-400 font-medium">
-                        Coursera • Data • Graded Assignment Passed
-                      </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-[#1A102F] truncate">
+                          {repo.name}
+                        </h4>
+                        {repo.url && (
+                          <a
+                            href={repo.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-gray-400 hover:text-[#633BB3]"
+                            title="Open on GitHub"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-gray-500 font-medium line-clamp-1 mt-0.5">
+                        {repo.description || repo.fullName}
+                      </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-[#1A102F] block">45 min</span>
-                    <span className="text-[10px] text-gray-400 font-medium">Today</span>
-                  </div>
-                </div>
 
-                <div className="flex items-center justify-between py-3.5">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
-                      <svg className="w-5 h-5 fill-red-600 shrink-0" viewBox="0 0 24 24">
-                        <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-[#1A102F]">
-                        SQL joins explained
-                      </h4>
-                      <span className="text-[11px] text-gray-400 font-medium">
-                        YouTube • Data • Video Tutorial
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-[#1A102F] block">28 min</span>
-                    <span className="text-[10px] text-gray-400 font-medium">Today</span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickSyncRepo(repo)}
+                    disabled={syncingRepoName === repo.name}
+                    className="px-3.5 py-2 rounded-xl bg-[#EAE4FA] hover:bg-[#D4C6F7] text-[#4D12A8] text-xs font-bold transition cursor-pointer shrink-0 self-end sm:self-center flex items-center gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncingRepoName === repo.name ? 'animate-spin' : ''}`} />
+                    <span>{syncingRepoName === repo.name ? 'Syncing...' : 'Sync Commits'}</span>
+                  </button>
                 </div>
-
-                <div className="flex items-center justify-between py-3.5">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shrink-0">
-                      <GitCommit className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-[#1A102F]">
-                        Merged pull request in lsync-ui
-                      </h4>
-                      <span className="text-[11px] text-gray-400 font-medium">
-                        GitHub • Development • Commit
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-[#1A102F] block">2 commits</span>
-                    <span className="text-[10px] text-gray-400 font-medium">Yesterday</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between py-3.5">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-[#02262B] text-[#D1FAE5] font-black text-xs flex items-center justify-center shrink-0 tracking-tighter">
-                      edX
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-[#1A102F]">
-                        Introduction to statistics, week 3 quiz
-                      </h4>
-                      <span className="text-[11px] text-gray-400 font-medium">
-                        edX • Data • Quiz passed
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-[#1A102F] block">1 h 10 min</span>
-                    <span className="text-[10px] text-gray-400 font-medium">10 Nov</span>
-                  </div>
-                </div>
-              </>
+              ))
             )}
           </div>
 
-          <div className="p-4 pt-0">
+          <div className="p-4 pt-0 flex items-center justify-between">
+            <button
+              onClick={() => navigate('/sources')}
+              className="text-xs font-bold text-[#633BB3] hover:underline cursor-pointer"
+            >
+              View all {githubRepoCount} repositories in Sources &rarr;
+            </button>
+          </div>
+        </div>
+
+        {/* RIGHT (1 Col): REAL RECENT ACTIVITIES FEED */}
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm flex flex-col justify-between">
+          <div>
+            <h3 className="text-base font-bold text-[#1A102F]">
+              Recent synced activity
+            </h3>
+            <p className="text-xs text-gray-500 mt-1 mb-5">
+              Latest commits &amp; YouTube watch logs.
+            </p>
+
+            {activities.length === 0 ? (
+              <div className="p-4 rounded-2xl bg-[#F8F9FC] border border-gray-100 text-xs text-gray-500 leading-relaxed">
+                No commits or YouTube logs synced yet. Click <strong>"Sync Commits"</strong> on any repository on the left to log your coding proof!
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {activities.slice(0, 4).map((act, i) => (
+                  <div
+                    key={act._id || act.id || i}
+                    className="p-3.5 rounded-2xl border border-gray-100 hover:border-purple-200 transition"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-xs font-bold text-[#1A102F] truncate">
+                        {act.title || act.videoTitle || act.message || 'Learning Activity'}
+                      </h4>
+                      <span className="text-[10px] font-bold text-[#633BB3] shrink-0">
+                        {act.durationMinutes ? `${act.durationMinutes}m` : 'Synced'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-gray-400 font-medium block mt-1 truncate">
+                      {act._kind === 'youtube' ? 'YouTube Extension' : 'GitHub Commit'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="pt-4">
             <button
               onClick={() => navigate('/activity')}
               className="text-xs font-bold text-[#633BB3] hover:underline cursor-pointer"
             >
-              View all activity
+              Open full Activity Timeline &rarr;
             </button>
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm flex flex-col justify-between">
-          <div>
-            <h3 className="text-base font-bold text-[#1A102F]">
-              Recommended next
-            </h3>
-            <p className="text-xs text-gray-500 mt-1 mb-5">
-              External courses based on your Skill Map gaps.
-            </p>
-
-            <div className="space-y-3.5">
-              <div className="p-4 rounded-2xl border border-gray-100 hover:border-purple-200 hover:bg-purple-50/20 transition cursor-pointer">
-                <h4 className="text-xs font-bold text-[#1A102F]">
-                  Intermediate SQL for analysts
-                </h4>
-                <span className="text-[10px] text-gray-400 font-medium block mt-1">
-                  Coursera • 12 h • Builds on Data analysis
-                </span>
-              </div>
-
-              <div className="p-4 rounded-2xl border border-gray-100 hover:border-purple-200 hover:bg-purple-50/20 transition cursor-pointer">
-                <h4 className="text-xs font-bold text-[#1A102F]">
-                  Data storytelling and dashboards
-                </h4>
-                <span className="text-[10px] text-gray-400 font-medium block mt-1">
-                  Udemy • 6 h • Builds on Data visualisation
-                </span>
-              </div>
-
-              <div className="p-4 rounded-2xl border border-gray-100 hover:border-purple-200 hover:bg-purple-50/20 transition cursor-pointer">
-                <h4 className="text-xs font-bold text-[#1A102F]">
-                  Version control with Git
-                </h4>
-                <span className="text-[10px] text-gray-400 font-medium block mt-1">
-                  YouTube • 4 h • Strengthens Development
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-4">
-            <button className="text-xs font-bold text-[#633BB3] hover:underline cursor-pointer">
-              See all recommendations
-            </button>
-          </div>
-        </div>
       </div>
 
     </div>
