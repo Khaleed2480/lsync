@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   RefreshCw,
   Plus,
   Check,
-  ExternalLink,
-  Globe,
-  Trash2,
   X,
   KeyRound,
   Copy,
@@ -25,7 +22,8 @@ export default function Sources() {
   const [platforms, setPlatforms] = useState([]);
   const [linkedAccounts, setLinkedAccounts] = useState([]);
 
-  // GitHub Repositories State
+  // GitHub Integration State
+  const [isGithubConnected, setIsGithubConnected] = useState(false);
   const [githubRepos, setGithubRepos] = useState([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [syncingRepo, setSyncingRepo] = useState(null);
@@ -37,7 +35,7 @@ export default function Sources() {
   const [generatingExtToken, setGeneratingExtToken] = useState(false);
   const [copiedExtToken, setCopiedExtToken] = useState(false);
 
-  // Link Account Modal (For Coursera, Udemy, edX, etc.)
+  // Link Account Modal
   const [linkModalPlatform, setLinkModalPlatform] = useState(null);
   const [platformUsername, setPlatformUsername] = useState('');
   const [profileUrl, setProfileUrl] = useState('');
@@ -56,12 +54,11 @@ export default function Sources() {
   const [statusMsg, setStatusMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
-  // ================= 1. FETCH PLATFORMS & LINKED ACCOUNTS ON LOAD =================
+  // ================= 1. FETCH PLATFORMS, ACCOUNTS & GITHUB STATUS ON LOAD =================
   useEffect(() => {
-    // Check if returning from GitHub OAuth redirect
-    if (searchParams.get('github') === 'connected' || searchParams.get('status') === 'success') {
+    const githubParam = searchParams.get('github') || searchParams.get('status');
+    if (githubParam === 'connected' || githubParam === 'success') {
       setStatusMsg('GitHub authorized successfully! Loading repositories...');
-      handleLoadGitHubRepos();
     }
 
     const loadSourcesData = async () => {
@@ -91,21 +88,41 @@ export default function Sources() {
         } catch (err) {
           console.log('Could not load /users/me accounts:', err.message);
         }
+
+        // Silently check if GitHub is already connected and load repos automatically
+        try {
+          const ghData = await apiRequest('/integrations/github/repositories?page=1&perPage=30', {
+            method: 'GET',
+          });
+          const repos = Array.isArray(ghData)
+            ? ghData
+            : ghData.repositories || ghData.repos || ghData.data || [];
+          setGithubRepos(repos);
+          setIsGithubConnected(true);
+
+          const current = JSON.parse(localStorage.getItem('connected_platforms') || '[]');
+          if (!current.includes('GitHub')) {
+            localStorage.setItem('connected_platforms', JSON.stringify([...current, 'GitHub']));
+          }
+        } catch (ghErr) {
+          // GitHub not connected yet — stay quiet without showing a red error on load
+        }
       }
     };
 
     loadSourcesData();
-  }, []);
+  }, [searchParams]);
 
   const syncConnectedStorage = (newAccountsList, extraName) => {
     const names = newAccountsList.map(
       (a) => a.platform?.name || a.platformName || a.name || 'Platform'
     );
     if (extraName && !names.includes(extraName)) names.push(extraName);
+    if (isGithubConnected && !names.includes('GitHub')) names.push('GitHub');
     localStorage.setItem('connected_platforms', JSON.stringify(names));
   };
 
-  // ================= 2. GITHUB OAUTH (USES authorizationUrl!) =================
+  // ================= 2. GITHUB OAUTH & REPOSITORIES (?page=1&perPage=30) =================
   const handleConnectGitHub = async () => {
     setErrorMsg('');
     setStatusMsg('Connecting to GitHub...');
@@ -114,7 +131,6 @@ export default function Sources() {
       const data = await apiRequest('/integrations/github/connect', { method: 'GET' });
       console.log('GitHub connect response:', data);
 
-      // LOOKS DIRECTLY FOR authorizationUrl!
       const targetUrl =
         data.authorizationUrl ||
         data.url ||
@@ -124,11 +140,10 @@ export default function Sources() {
         data.data?.url;
 
       if (targetUrl) {
-        setStatusMsg('Redirecting to official GitHub authorization page...');
-        // Jumps immediately to GitHub.com!
+        setStatusMsg('Redirecting to GitHub authorization...');
         window.location.href = targetUrl;
       } else {
-        setErrorMsg('Server did not return a valid GitHub authorization URL.');
+        setErrorMsg('Server did not return a GitHub authorizationUrl.');
       }
     } catch (err) {
       setErrorMsg(err.message || 'Could not connect to GitHub.');
@@ -138,27 +153,44 @@ export default function Sources() {
   const handleLoadGitHubRepos = async () => {
     setLoadingRepos(true);
     setErrorMsg('');
+    setStatusMsg('');
     try {
-      const data = await apiRequest('/integrations/github/repositories', { method: 'GET' });
+      const data = await apiRequest('/integrations/github/repositories?page=1&perPage=30', {
+        method: 'GET',
+      });
+      console.log('GitHub repos response:', data);
+
       const repos = Array.isArray(data)
         ? data
         : data.repositories || data.repos || data.data || [];
       setGithubRepos(repos);
+      setIsGithubConnected(true);
+
+      const current = JSON.parse(localStorage.getItem('connected_platforms') || '[]');
+      if (!current.includes('GitHub')) {
+        localStorage.setItem('connected_platforms', JSON.stringify([...current, 'GitHub']));
+      }
+
       if (repos.length === 0) {
-        setStatusMsg('No repositories found for this GitHub account.');
+        setStatusMsg('GitHub connected! No repositories found on this account.');
       } else {
-        setStatusMsg(`Loaded ${repos.length} repositories from GitHub!`);
+        setStatusMsg(`Loaded ${repos.length} GitHub repositories!`);
       }
     } catch (err) {
-      setErrorMsg('No connected GitHub account found. Please click "Authorize GitHub" first.');
+      setErrorMsg(err.message || 'Could not load GitHub repositories. Please authorize GitHub first.');
     } finally {
       setLoadingRepos(false);
     }
   };
 
   const handleSyncRepoCommits = async (repo) => {
-    const owner = repo.owner?.login || repo.owner || 'user';
-    const repoName = repo.name;
+    const owner =
+      repo.owner?.login ||
+      repo.owner ||
+      (repo.full_name ? repo.full_name.split('/')[0] : 'user');
+    const repoName =
+      repo.name || (repo.full_name ? repo.full_name.split('/')[1] : '');
+
     setSyncingRepo(repoName);
     setErrorMsg('');
     setStatusMsg('');
@@ -168,11 +200,6 @@ export default function Sources() {
         method: 'POST',
       });
       setStatusMsg(`Synced commits from ${owner}/${repoName} as learning evidence!`);
-
-      const current = JSON.parse(localStorage.getItem('connected_platforms') || '[]');
-      if (!current.includes('GitHub')) {
-        localStorage.setItem('connected_platforms', JSON.stringify([...current, 'GitHub']));
-      }
     } catch (err) {
       setErrorMsg(err.message || `Failed to sync ${repoName}.`);
     } finally {
@@ -366,7 +393,8 @@ export default function Sources() {
         (a.platform?.name || a.platformName || '').toLowerCase() === name.toLowerCase()
     );
 
-  const totalConnected = linkedAccounts.length + (extensionToken ? 1 : 0);
+  const totalConnected =
+    linkedAccounts.length + (extensionToken ? 1 : 0) + (isGithubConnected ? 1 : 0);
 
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-6xl mx-auto w-full font-sans">
@@ -434,7 +462,15 @@ export default function Sources() {
                   G
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-[#1A102F]">GitHub Integration</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-[#1A102F]">GitHub Integration</h3>
+                    {isGithubConnected && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700">
+                        <Check className="w-3 h-3 stroke-[3]" />
+                        Connected
+                      </span>
+                    )}
+                  </div>
                   <span className="text-xs text-gray-400 font-medium">
                     Authorize GitHub &amp; sync repository commits as verified coding proof
                   </span>
@@ -447,7 +483,7 @@ export default function Sources() {
                   onClick={handleConnectGitHub}
                   className="px-4 py-2 rounded-xl bg-[#1A102F] hover:bg-black text-white text-xs font-bold transition cursor-pointer"
                 >
-                  Authorize GitHub
+                  {isGithubConnected ? 'Re-authorize GitHub' : 'Authorize GitHub'}
                 </button>
                 <button
                   type="button"
@@ -465,7 +501,7 @@ export default function Sources() {
             {githubRepos.length > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-100 space-y-2 max-h-60 overflow-y-auto">
                 <span className="text-xs font-bold text-[#1A102F] block mb-2">
-                  Select a repository to sync commits:
+                  Select a repository to sync commits ({githubRepos.length} repositories):
                 </span>
                 {githubRepos.map((repo) => (
                   <div
@@ -473,7 +509,9 @@ export default function Sources() {
                     className="flex items-center justify-between p-3 rounded-xl bg-[#F8F9FC] border border-gray-200/70"
                   >
                     <div>
-                      <h4 className="text-xs font-bold text-[#1A102F]">{repo.name}</h4>
+                      <h4 className="text-xs font-bold text-[#1A102F]">
+                        {repo.name || repo.full_name}
+                      </h4>
                       <span className="text-[10px] text-gray-400">
                         {repo.language || 'Code'} • {repo.private ? 'Private' : 'Public'}
                       </span>

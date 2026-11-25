@@ -6,16 +6,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then((result) => sendResponse({ success: true, data: result }))
       .catch((err) => sendResponse({ success: false, error: err.message }));
 
-    return true; // Keeps message channel open for async fetch
+    return true;
   }
 });
 
 async function handleRecordWatchEvent(payload) {
-  const storage = await chrome.storage.local.get(['extensionToken']);
-  const token = storage.extensionToken;
+  const storage = await chrome.storage.local.get(['extensionToken', 'loginToken']);
+  const token = storage.extensionToken || storage.loginToken;
 
   if (!token) {
-    throw new Error('Extension not linked. Paste your token in the LSync popup first.');
+    throw new Error('Not signed in. Open the LSync extension icon and sign in first.');
   }
 
   const response = await fetch(API_ENDPOINT, {
@@ -42,7 +42,6 @@ async function handleRecordWatchEvent(payload) {
     throw new Error(data.message || data.error || `Server error (${response.status})`);
   }
 
-  // Save last synced info for the popup to display
   await chrome.storage.local.set({
     lastSyncedTitle: payload.title,
     lastSyncedAt: new Date().toLocaleTimeString(),

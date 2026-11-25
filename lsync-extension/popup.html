@@ -6,7 +6,7 @@
   <style>
     * { box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
     body {
-      width: 310px;
+      width: 330px;
       margin: 0;
       padding: 16px;
       background: #140C24;
@@ -19,7 +19,7 @@
       margin-bottom: 14px;
     }
     .brand {
-      font-weight: 800;
+      font-weight: 900;
       font-size: 18px;
       letter-spacing: 0.5px;
     }
@@ -27,13 +27,13 @@
     .badge {
       font-size: 10px;
       font-weight: 700;
-      padding: 4px 8px;
+      padding: 4px 9px;
       border-radius: 999px;
       background: #251842;
       color: #9CA3AF;
     }
     .badge.active {
-      background: rgba(16, 185, 129, 0.15);
+      background: rgba(16, 185, 129, 0.18);
       color: #34D399;
     }
     .card {
@@ -45,15 +45,16 @@
     }
     label {
       display: block;
-      font-size: 11px;
-      font-weight: 700;
+      font-size: 10px;
+      font-weight: 800;
       text-transform: uppercase;
-      margin-bottom: 6px;
+      letter-spacing: 0.5px;
+      margin-bottom: 5px;
       color: #D1D5DB;
     }
     input {
       width: 100%;
-      padding: 9px 10px;
+      padding: 9px 11px;
       border-radius: 10px;
       border: 1px solid #3A2263;
       background: #120A22;
@@ -75,23 +76,66 @@
       background: linear-gradient(to right, #7038C4, #EB577F);
     }
     button:hover { opacity: 0.92; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
     .sync-btn {
       background: #F4A836;
       color: #140C24;
-      margin-top: 6px;
+      font-weight: 800;
+    }
+    .logout-btn {
+      background: transparent;
+      border: 1px solid #3A2263;
+      color: #F87171;
+      margin-top: 8px;
+      padding: 7px;
+      font-size: 11px;
     }
     .status {
       font-size: 11px;
+      font-weight: 600;
       margin-top: 8px;
       text-align: center;
-      min-height: 16px;
+      min-height: 15px;
     }
-    .last-synced {
+    .user-info {
       font-size: 11px;
-      color: #9CA3AF;
-      line-height: 1.4;
+      color: #D1D5DB;
+      margin-bottom: 10px;
     }
-    .last-synced strong { color: #FAF7F2; display: block; margin-top: 2px; }
+    .user-info strong { color: #FAF7F2; font-size: 13px; display: block; }
+    .events-list {
+      max-height: 135px;
+      overflow-y: auto;
+      margin-top: 8px;
+      space-y: 6px;
+    }
+    .event-item {
+      background: #120A22;
+      border: 1px solid #2A1B4A;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .event-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #FAF7F2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 195px;
+    }
+    .event-time {
+      font-size: 10px;
+      font-weight: 700;
+      color: #F4A836;
+      flex-shrink: 0;
+    }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
@@ -100,19 +144,45 @@
     <div id="statusBadge" class="badge">Not Linked</div>
   </div>
 
-  <div class="card">
-    <label for="tokenInput">Extension Token (From Sources Page)</label>
-    <input type="text" id="tokenInput" placeholder="Paste your LSync token here..." />
-    <button id="saveBtn">Save &amp; Link Extension</button>
-    <div id="msg" class="status"></div>
+  <!-- VIEW 1: SIGN IN FORM (Steps 1 & 2) -->
+  <div id="loginView" class="card">
+    <form id="loginForm">
+      <label for="emailInput">Email Address</label>
+      <input type="email" id="emailInput" placeholder="e.g. daniel@example.com" required />
+
+      <label for="passwordInput">Password</label>
+      <input type="password" id="passwordInput" placeholder="••••••••" required />
+
+      <button type="submit" id="loginBtn">Sign In &amp; Link Extension</button>
+    </form>
+    <div id="loginMsg" class="status"></div>
   </div>
 
-  <div class="card">
-    <div class="last-synced">
-      Last Synced Activity:
-      <strong id="lastTitle">None yet</strong>
+  <!-- VIEW 2: TRACKING & RECORDED EVENTS (Steps 3 & 4) -->
+  <div id="connectedView" class="hidden">
+    <div class="card">
+      <div class="user-info">
+        Signed in as:
+        <strong id="userNameDisplay">LSync Learner</strong>
+      </div>
+
+      <button id="syncNowBtn" class="sync-btn">Sync Current YouTube Video</button>
+      <div id="syncMsg" class="status"></div>
     </div>
-    <button id="syncNowBtn" class="sync-btn">Sync Current YouTube Video</button>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <label style="margin:0;">Recorded YouTube Events</label>
+        <span id="refreshEvents" style="font-size:10px; color:#F4A836; cursor:pointer; font-weight:700;">↻ Refresh</span>
+      </div>
+      <div id="eventsList" class="events-list">
+        <div style="font-size:11px; color:#9CA3AF; text-align:center; padding:10px 0;">
+          Loading watch history...
+        </div>
+      </div>
+
+      <button id="logoutBtn" class="logout-btn">Disconnect &amp; Sign Out</button>
+    </div>
   </div>
 
   <script src="popup.js"></script>

@@ -27,31 +27,63 @@ export default function Activity() {
   const [proofUrl, setProofUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Feedback
   const [statusMsg, setStatusMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
-  // ================= 1. FETCH SYNCED GITHUB ACTIVITIES =================
+  // ================= FETCH GITHUB + YOUTUBE WATCH EVENTS =================
   const loadActivities = async (pageNum = 1) => {
     setIsLoading(true);
+    let combined = [];
+
+    // 1. Fetch GitHub synced activities
     try {
-      const res = await apiRequest(`/integrations/github/activities?page=${pageNum}&limit=20`, {
+      const ghRes = await apiRequest(`/integrations/github/activities?page=${pageNum}&limit=20`, {
         method: 'GET',
       });
-      const list = Array.isArray(res) ? res : res.activities || res.data || [];
-      setActivities(list);
+      const ghList = Array.isArray(ghRes) ? ghRes : ghRes.activities || ghRes.data || [];
+      combined = [...combined, ...ghList.map((item) => ({ ...item, _sourceKind: 'github' }))];
+    } catch (err) {}
+
+    // 2. Fetch YouTube Chrome Extension Watch Events (GET /api/watch-events)
+    try {
+      const extToken = localStorage.getItem('extension_token');
+      const ytRes = await apiRequest(`/watch-events?page=${pageNum}&limit=20`, {
+        method: 'GET',
+        ...(extToken ? { headers: { Authorization: `Bearer ${extToken}` } } : {}),
+      });
+      const ytList = Array.isArray(ytRes)
+        ? ytRes
+        : ytRes.events || ytRes.watchEvents || ytRes.data || [];
+      combined = [...combined, ...ytList.map((item) => ({ ...item, _sourceKind: 'youtube' }))];
     } catch (err) {
-      console.log('Activity fetch note:', err.message);
-    } finally {
-      setIsLoading(false);
+      // Retry with standard user JWT if extension token wasn't accepted
+      try {
+        const ytFallback = await apiRequest(`/watch-events?page=${pageNum}&limit=20`, {
+          method: 'GET',
+        });
+        const ytList2 = Array.isArray(ytFallback)
+          ? ytFallback
+          : ytFallback.events || ytFallback.watchEvents || ytFallback.data || [];
+        combined = [...combined, ...ytList2.map((item) => ({ ...item, _sourceKind: 'youtube' }))];
+      } catch (e2) {}
     }
+
+    // Sort newest first
+    combined.sort((a, b) => {
+      const dateA = new Date(a.watchedAt || a.date || a.createdAt || 0);
+      const dateB = new Date(b.watchedAt || b.date || b.createdAt || 0);
+      return dateB - dateA;
+    });
+
+    setActivities(combined);
+    setIsLoading(false);
   };
 
   useEffect(() => {
     loadActivities(page);
   }, [page]);
 
-  // ================= 2. LOG MANUAL ACTIVITY (POST /api/logs/log) =================
+  // ================= LOG MANUAL ACTIVITY (POST /api/logs/log) =================
   const handleCreateLog = async (e) => {
     e.preventDefault();
     if (!title.trim()) return;
@@ -79,7 +111,7 @@ export default function Activity() {
       const created = res.log || res.data || {
         ...payload,
         _id: Date.now().toString(),
-        source: 'Manual Log',
+        _sourceKind: 'manual',
       };
 
       setActivities((prev) => [created, ...prev]);
@@ -98,15 +130,13 @@ export default function Activity() {
 
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-7xl mx-auto w-full font-sans">
-      
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A102F] tracking-tight">
             Learning activity
           </h1>
           <p className="text-xs sm:text-sm text-gray-500 mt-1 max-w-2xl leading-relaxed">
-            Your synced GitHub commits and logged learning sessions merged into one timeline.
+            Your YouTube watch events, synced GitHub commits, and manual learning sessions merged into one timeline.
           </p>
         </div>
 
@@ -120,7 +150,6 @@ export default function Activity() {
         </button>
       </div>
 
-      {/* Feedback */}
       {errorMsg && (
         <div className="flex items-center gap-2 p-3.5 mb-5 rounded-2xl bg-red-100 border border-red-200 text-red-700 text-xs font-bold">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -135,7 +164,6 @@ export default function Activity() {
         </div>
       )}
 
-      {/* Sync Banner */}
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
         <div className="flex items-center gap-3.5">
           <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
@@ -147,7 +175,7 @@ export default function Activity() {
             </span>
             <span className="text-xs text-gray-500 font-medium">
               {activities.length === 0
-                ? 'Sync GitHub repositories in Sources or log an activity manually above.'
+                ? 'Watch YouTube with our Chrome Extension, sync GitHub, or log an activity above.'
                 : `Showing ${activities.length} recorded learning events.`}
             </span>
           </div>
@@ -162,7 +190,6 @@ export default function Activity() {
         </button>
       </div>
 
-      {/* Activity Feed Container */}
       <div className="bg-white rounded-3xl border border-gray-100 shadow-xs overflow-hidden">
         {isLoading ? (
           <div className="py-20 flex flex-col items-center justify-center text-gray-400 text-xs font-bold gap-2">
@@ -176,7 +203,7 @@ export default function Activity() {
             </div>
             <h3 className="text-sm font-bold text-[#1A102F]">No learning activity yet</h3>
             <p className="text-xs text-gray-400 max-w-xs">
-              Sync a GitHub repository in Sources or click "+ Log Activity" to record your study session.
+              Install the LSync Chrome Extension to record YouTube tutorials, sync GitHub, or click "+ Log Activity".
             </p>
             <div className="flex items-center gap-3 mt-2">
               <Link
@@ -191,10 +218,18 @@ export default function Activity() {
           <>
             <div className="divide-y divide-gray-100">
               {activities.map((item, idx) => {
+                const isYouTube =
+                  item._sourceKind === 'youtube' ||
+                  item.platform === 'YouTube' ||
+                  Boolean(item.videoId || item.videoUrl);
                 const isGitHub =
-                  item.source === 'GitHub' ||
+                  item._sourceKind === 'github' ||
                   item.platform === 'GitHub' ||
                   Boolean(item.commitSha || item.repository);
+
+                const mins =
+                  item.durationMinutes ||
+                  (item.durationSeconds ? Math.max(1, Math.round(item.durationSeconds / 60)) : null);
 
                 return (
                   <div
@@ -202,37 +237,41 @@ export default function Activity() {
                     className="flex items-center justify-between p-5 hover:bg-gray-50/50 transition gap-4"
                   >
                     <div className="flex items-center gap-4 min-w-0">
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                          isGitHub ? 'bg-gray-900 text-white' : 'bg-purple-50 text-[#633BB3]'
-                        }`}
-                      >
-                        {isGitHub ? (
+                      {isYouTube ? (
+                        <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
+                          <svg className="w-5 h-5 fill-red-600 shrink-0" viewBox="0 0 24 24">
+                            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+                          </svg>
+                        </div>
+                      ) : isGitHub ? (
+                        <div className="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center shrink-0">
                           <GitCommit className="w-5 h-5" />
-                        ) : (
+                        </div>
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-purple-50 text-[#633BB3] flex items-center justify-center shrink-0">
                           <BookOpen className="w-5 h-5" />
-                        )}
-                      </div>
+                        </div>
+                      )}
 
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <h4 className="text-sm font-bold text-[#1A102F] truncate">
-                            {item.title || item.message || 'Learning Session'}
+                            {item.title || item.videoTitle || item.message || 'Learning Session'}
                           </h4>
-                          {(item.proofUrl || item.url) && (
+                          {(item.proofUrl || item.videoUrl || item.url) && (
                             <a
-                              href={item.proofUrl || item.url}
+                              href={item.proofUrl || item.videoUrl || item.url}
                               target="_blank"
                               rel="noreferrer"
                               className="text-[#633BB3] hover:text-[#4D12A8] shrink-0"
-                              title="View Proof Link"
+                              title="View Source"
                             >
                               <ExternalLink className="w-3.5 h-3.5" />
                             </a>
                           )}
                         </div>
                         <span className="text-[11px] text-gray-400 font-medium block truncate">
-                          {isGitHub ? 'GitHub' : item.type || 'Study'} •{' '}
+                          {isYouTube ? 'YouTube Extension' : isGitHub ? 'GitHub' : item.type || 'Study'} •{' '}
                           {item.description || item.repository || 'Verified learning log'}
                         </span>
                       </div>
@@ -240,11 +279,11 @@ export default function Activity() {
 
                     <div className="text-right shrink-0">
                       <span className="text-xs font-bold text-[#1A102F] block">
-                        {item.durationMinutes ? `${item.durationMinutes} min` : 'Synced'}
+                        {mins ? `${mins} min` : 'Synced'}
                       </span>
                       <span className="text-[10px] text-gray-400 font-medium">
-                        {item.date || item.createdAt
-                          ? new Date(item.date || item.createdAt).toLocaleDateString()
+                        {item.watchedAt || item.date || item.createdAt
+                          ? new Date(item.watchedAt || item.date || item.createdAt).toLocaleDateString()
                           : 'Recent'}
                       </span>
                     </div>
@@ -253,7 +292,6 @@ export default function Activity() {
               })}
             </div>
 
-            {/* Pagination */}
             <div className="p-5 border-t border-gray-100 flex items-center justify-between">
               <span className="text-xs font-medium text-gray-500">Page {page}</span>
               <div className="flex items-center gap-2">
@@ -276,7 +314,7 @@ export default function Activity() {
         )}
       </div>
 
-      {/* ================= MODAL: LOG MANUAL ACTIVITY (POST /api/logs/log) ================= */}
+      {/* LOG MANUAL ACTIVITY MODAL */}
       {showLogModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-gray-100">
@@ -385,7 +423,6 @@ export default function Activity() {
           </div>
         </div>
       )}
-
     </div>
   );
 }

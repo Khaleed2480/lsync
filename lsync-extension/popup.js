@@ -1,78 +1,206 @@
+const API_BASE = 'https://lsync-1-0-0-1.onrender.com/api';
+
 document.addEventListener('DOMContentLoaded', async () => {
-  const tokenInput = document.getElementById('tokenInput');
-  const saveBtn = document.getElementById('saveBtn');
-  const syncNowBtn = document.getElementById('syncNowBtn');
+  const loginView = document.getElementById('loginView');
+  const connectedView = document.getElementById('connectedView');
   const statusBadge = document.getElementById('statusBadge');
-  const msg = document.getElementById('msg');
-  const lastTitle = document.getElementById('lastTitle');
 
-  // Load saved token & last synced video
-  const data = await chrome.storage.local.get([
-    'extensionToken',
-    'lastSyncedTitle',
-    'lastSyncedAt',
-  ]);
+  const loginForm = document.getElementById('loginForm');
+  const emailInput = document.getElementById('emailInput');
+  const passwordInput = document.getElementById('passwordInput');
+  const loginBtn = document.getElementById('loginBtn');
+  const loginMsg = document.getElementById('loginMsg');
 
-  if (data.extensionToken) {
-    tokenInput.value = data.extensionToken;
-    statusBadge.textContent = '● Active';
+  const userNameDisplay = document.getElementById('userNameDisplay');
+  const syncNowBtn = document.getElementById('syncNowBtn');
+  const syncMsg = document.getElementById('syncMsg');
+  const eventsList = document.getElementById('eventsList');
+  const refreshEvents = document.getElementById('refreshEvents');
+  const logoutBtn = document.getElementById('logoutBtn');
+
+  // Check if already signed in and linked
+  const stored = await chrome.storage.local.get(['extensionToken', 'loginToken', 'userName']);
+  if (stored.extensionToken) {
+    showConnectedView(stored.userName || 'LSync Learner');
+    fetchRecordedEvents();
+  }
+
+  function showConnectedView(name) {
+    loginView.classList.add('hidden');
+    connectedView.classList.remove('hidden');
+    statusBadge.textContent = '● Linked';
     statusBadge.classList.add('active');
+    userNameDisplay.textContent = name;
   }
 
-  if (data.lastSyncedTitle) {
-    lastTitle.textContent = `${data.lastSyncedTitle} (${data.lastSyncedAt})`;
+  function showLoginView() {
+    connectedView.classList.add('hidden');
+    loginView.classList.remove('hidden');
+    statusBadge.textContent = 'Not Linked';
+    statusBadge.classList.remove('active');
   }
 
-  // Save token
-  saveBtn.addEventListener('click', async () => {
-    const val = tokenInput.value.trim();
-    if (!val) {
-      msg.style.color = '#F87171';
-      msg.textContent = 'Please paste a valid token.';
-      return;
+  // ================= STEP 1 & 2: SIGN IN -> AUTO-LINK EXTENSION =================
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    loginMsg.style.color = '#F4A836';
+    loginMsg.textContent = 'Signing in...';
+    loginBtn.disabled = true;
+
+    try {
+      // 1. Sign in via POST /api/auth/login
+      const loginRes = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: emailInput.value.trim().toLowerCase(),
+          password: passwordInput.value,
+        }),
+      });
+      const loginData = await loginRes.json().catch(() => ({}));
+
+      if (!loginRes.ok || loginData.success === false) {
+        throw new Error(loginData.message || 'Invalid email or password.');
+      }
+
+      const jwt = loginData.token || loginData.accessToken || loginData.data?.token;
+      const userName =
+        loginData.user?.name ||
+        loginData.user?.fullName ||
+        emailInput.value.split('@')[0];
+
+      // 2. Link extension via POST /api/extension/link using JWT
+      loginMsg.textContent = 'Linking extension...';
+      const linkRes = await fetch(`${API_BASE}/extension/link`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+      });
+      const linkData = await linkRes.json().catch(() => ({}));
+
+      if (!linkRes.ok || linkData.success === false) {
+        throw new Error(linkData.message || 'Could not link extension.');
+      }
+
+      const extToken =
+        linkData.token ||
+        linkData.extensionToken ||
+        linkData.data?.token ||
+        linkData.data?.extensionToken ||
+        jwt;
+
+      await chrome.storage.local.set({
+        loginToken: jwt,
+        extensionToken: extToken,
+        userName,
+      });
+
+      showConnectedView(userName);
+      fetchRecordedEvents();
+    } catch (err) {
+      loginMsg.style.color = '#F87171';
+      loginMsg.textContent = err.message || 'Connection failed.';
+    } finally {
+      loginBtn.disabled = false;
     }
-
-    await chrome.storage.local.set({ extensionToken: val });
-    statusBadge.textContent = '● Active';
-    statusBadge.classList.add('active');
-    msg.style.color = '#34D399';
-    msg.textContent = 'Extension linked to your LSync account!';
   });
 
-  // Manual sync button (Awesome for live demos!)
+  // ================= STEP 3: MANUAL SYNC CURRENT YOUTUBE VIDEO =================
   syncNowBtn.addEventListener('click', async () => {
-    msg.style.color = '#F4A836';
-    msg.textContent = 'Syncing video...';
+    syncMsg.style.color = '#F4A836';
+    syncMsg.textContent = 'Recording video...';
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.url || !tab.url.includes('youtube.com/watch')) {
-      msg.style.color = '#F87171';
-      msg.textContent = 'Please open a YouTube video first.';
+      syncMsg.style.color = '#F87171';
+      syncMsg.textContent = 'Please open a YouTube video first.';
       return;
     }
 
-    chrome.tabs.sendMessage(
-      tab.id,
-      { type: 'MANUAL_SYNC_CURRENT_VIDEO' },
-      (response) => {
-        if (chrome.runtime.lastError || !response) {
-          msg.style.color = '#F87171';
-          msg.textContent = 'Refresh the YouTube tab and try again.';
-          return;
-        }
-        if (response.success) {
-          msg.style.color = '#34D399';
-          msg.textContent = 'Synced to LSync successfully!';
-          chrome.storage.local.get(['lastSyncedTitle', 'lastSyncedAt']).then((updated) => {
-            if (updated.lastSyncedTitle) {
-              lastTitle.textContent = `${updated.lastSyncedTitle} (${updated.lastSyncedAt})`;
-            }
-          });
-        } else {
-          msg.style.color = '#F87171';
-          msg.textContent = response.error || 'Sync failed.';
-        }
+    chrome.tabs.sendMessage(tab.id, { type: 'MANUAL_SYNC_CURRENT_VIDEO' }, (response) => {
+      if (chrome.runtime.lastError || !response) {
+        syncMsg.style.color = '#F87171';
+        syncMsg.textContent = 'Refresh the YouTube tab and try again.';
+        return;
       }
-    );
+      if (response.success) {
+        syncMsg.style.color = '#34D399';
+        syncMsg.textContent = 'Watch event recorded!';
+        fetchRecordedEvents();
+      } else {
+        syncMsg.style.color = '#F87171';
+        syncMsg.textContent = response.error || 'Sync failed.';
+      }
+    });
+  });
+
+  // ================= STEP 4: LIST RECORDED EVENTS (GET /api/watch-events) =================
+  async function fetchRecordedEvents() {
+    eventsList.innerHTML =
+      '<div style="font-size:11px; color:#9CA3AF; text-align:center; padding:8px 0;">Loading...</div>';
+
+    const keys = await chrome.storage.local.get(['extensionToken', 'loginToken']);
+    const authToken = keys.extensionToken || keys.loginToken;
+
+    try {
+      let res = await fetch(`${API_BASE}/watch-events?page=1&limit=20`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+
+      // Fallback: if GET expects login JWT instead of extension token
+      if (res.status === 401 && keys.loginToken && authToken !== keys.loginToken) {
+        res = await fetch(`${API_BASE}/watch-events?page=1&limit=20`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${keys.loginToken}`,
+          },
+        });
+      }
+
+      const data = await res.json().catch(() => ({}));
+      const items = Array.isArray(data)
+        ? data
+        : data.events || data.watchEvents || data.data || [];
+
+      if (items.length === 0) {
+        eventsList.innerHTML =
+          '<div style="font-size:11px; color:#9CA3AF; text-align:center; padding:10px 0;">No YouTube events recorded yet.</div>';
+        return;
+      }
+
+      eventsList.innerHTML = items
+        .slice(0, 10)
+        .map((ev) => {
+          const title = ev.title || ev.videoTitle || 'YouTube Study Video';
+          const mins = ev.durationMinutes || Math.max(1, Math.round((ev.durationSeconds || 60) / 60));
+          return `
+            <div class="event-item">
+              <div class="event-title" title="${title}">${title}</div>
+              <div class="event-time">${mins} min</div>
+            </div>
+          `;
+        })
+        .join('');
+    } catch (err) {
+      eventsList.innerHTML =
+        '<div style="font-size:11px; color:#F87171; text-align:center; padding:8px 0;">Could not load events.</div>';
+    }
+  }
+
+  refreshEvents.addEventListener('click', fetchRecordedEvents);
+
+  // Disconnect / Sign Out
+  logoutBtn.addEventListener('click', async () => {
+    await chrome.storage.local.remove(['extensionToken', 'loginToken', 'userName']);
+    showLoginView();
+    loginMsg.textContent = '';
+    syncMsg.textContent = '';
   });
 });
